@@ -4,7 +4,7 @@ import { DiaryProvider } from "@/contexts/DiaryContext";
 import { SettingsProvider, useAppTheme } from "@/contexts/SettingsContext";
 import { TagsProvider } from "@/contexts/TagsContext";
 import { TaskProvider } from "@/contexts/TaskContext";
-import { checkAndGenerateRecurringTasks } from "@/utils/taskChecker";
+import { taskStorage } from "@/utils/taskStorage";
 import { Stack } from "expo-router/stack";
 import { useEffect, useState } from "react";
 
@@ -60,7 +60,7 @@ export default function RootLayout() {
     // Проверяем повторяющиеся задачи при запуске приложения
     const initializeApp = async () => {
       try {
-        await checkAndGenerateRecurringTasks();
+        await taskStorage.checkAndGenerateRecurringTasks();
       } catch (error) {
         console.error("Error initializing app:", error);
       }

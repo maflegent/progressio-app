@@ -9,6 +9,7 @@ export interface Task {
   description?: string;
   priority: TaskPriority;
   eisenhower?: EisenhowerMatrix;
+  folder?: string; // Новое поле для папок
   isCompleted: boolean;
   dueDate?: Date;
   isRecurring: boolean;

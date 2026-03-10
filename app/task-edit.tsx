@@ -68,13 +68,26 @@ export default function TaskEditScreen() {
           }
         }
 
-        // Вычисляем время напоминания
+        // Вычисляем время напоминания (с защитой от некорректных типов)
         let reminderMinutesBefore: number | null = 15; // по умолчанию
-        if (task.reminderDate && task.dueDate) {
-          const diffMs = task.dueDate.getTime() - task.reminderDate.getTime();
+        const dueDateValue =
+          task.dueDate instanceof Date
+            ? task.dueDate
+            : task.dueDate
+              ? new Date(task.dueDate)
+              : undefined;
+        const reminderDateValue =
+          task.reminderDate instanceof Date
+            ? task.reminderDate
+            : task.reminderDate
+              ? new Date(task.reminderDate)
+              : undefined;
+
+        if (reminderDateValue && dueDateValue) {
+          const diffMs = dueDateValue.getTime() - reminderDateValue.getTime();
           const diffMinutes = Math.floor(diffMs / (60 * 1000));
           reminderMinutesBefore = diffMinutes;
-        } else if (!task.reminderDate) {
+        } else if (!reminderDateValue) {
           reminderMinutesBefore = null;
         }
 
@@ -86,7 +99,7 @@ export default function TaskEditScreen() {
           tags: task.tags || [],
           currentTag: "",
           recurringRule,
-          dueDate: task.dueDate,
+          dueDate: dueDateValue,
           reminderMinutesBefore,
         });
       }
@@ -108,12 +121,18 @@ export default function TaskEditScreen() {
           ? description.substring(0, 300) + "..."
           : description || undefined;
 
-      // Рассчитываем дату напоминания
+      // Рассчитываем дату напоминания (с защитой от некорректных типов)
       let reminderDate: Date | undefined;
-      if (formData.dueDate && formData.reminderMinutesBefore) {
+      const dueDateValue =
+        formData.dueDate instanceof Date
+          ? formData.dueDate
+          : formData.dueDate
+            ? new Date(formData.dueDate)
+            : undefined;
+
+      if (dueDateValue && formData.reminderMinutesBefore) {
         reminderDate = new Date(
-          formData.dueDate.getTime() -
-            formData.reminderMinutesBefore * 60 * 1000,
+          dueDateValue.getTime() - formData.reminderMinutesBefore * 60 * 1000,
         );
       }
 
@@ -146,12 +165,12 @@ export default function TaskEditScreen() {
       }
 
       // Планируем новое напоминание
-      if (formData.dueDate && formData.reminderMinutesBefore && reminderDate) {
+      if (dueDateValue && formData.reminderMinutesBefore && reminderDate) {
         try {
           const identifier = await scheduleTaskReminder(
             taskId,
             formData.title,
-            formData.dueDate,
+            dueDateValue,
             formData.reminderMinutesBefore,
           );
           if (!identifier) {
@@ -362,19 +381,23 @@ export default function TaskEditScreen() {
     }
   };
 
-  const formatDate = (date?: Date) => {
+  const formatDate = (date?: Date | string) => {
     if (!date) return "Не указана";
+
+    // Конвертируем в Date если это строка
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) return "Не указана";
 
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    if (date.toDateString() === today.toDateString()) {
+    if (dateObj.toDateString() === today.toDateString()) {
       return "Сегодня";
-    } else if (date.toDateString() === tomorrow.toDateString()) {
+    } else if (dateObj.toDateString() === tomorrow.toDateString()) {
       return "Завтра";
     } else {
-      return date.toLocaleDateString("ru-RU", {
+      return dateObj.toLocaleDateString("ru-RU", {
         day: "numeric",
         month: "long",
         year: "numeric",

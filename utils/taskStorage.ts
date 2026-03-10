@@ -7,6 +7,8 @@ import {
 } from "./recurringTasks";
 
 const TASKS_KEY = "@progressio_tasks";
+const LAST_RECURRING_CHECK_KEY = "@progressio_last_recurring_check";
+const MIN_RECURRING_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 // Счетчик для гарантии уникальности ID
 let idCounter = 0;
@@ -21,6 +23,7 @@ const generateId = (): string => {
 const serializeTask = (task: Task): any => ({
   ...task,
   dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+  reminderDate: task.reminderDate ? task.reminderDate.toISOString() : null,
   createdAt: task.createdAt.toISOString(),
   updatedAt: task.updatedAt.toISOString(),
 });
@@ -28,9 +31,27 @@ const serializeTask = (task: Task): any => ({
 const deserializeTask = (data: any): Task => ({
   ...data,
   dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+  reminderDate: data.reminderDate ? new Date(data.reminderDate) : undefined,
   createdAt: new Date(data.createdAt),
   updatedAt: new Date(data.updatedAt),
 });
+
+const getLastRecurringCheckDate = async (): Promise<Date | null> => {
+  try {
+    const value = await AsyncStorage.getItem(LAST_RECURRING_CHECK_KEY);
+    return value ? new Date(value) : null;
+  } catch {
+    return null;
+  }
+};
+
+const setLastRecurringCheckDate = async (date: Date): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(LAST_RECURRING_CHECK_KEY, date.toISOString());
+  } catch (error) {
+    console.error("Error updating recurring check date:", error);
+  }
+};
 
 export const taskStorage = {
   // Сохранить все задачи
@@ -449,8 +470,17 @@ export const taskStorage = {
   // Проверить и создать повторяющиеся задачи (для запуска при старте приложения)
   async checkAndGenerateRecurringTasks(): Promise<void> {
     try {
-      const tasks = await this.getAllTasks();
       const now = new Date();
+      const lastCheck = await getLastRecurringCheckDate();
+
+      if (
+        lastCheck &&
+        now.getTime() - lastCheck.getTime() < MIN_RECURRING_CHECK_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      const tasks = await this.getAllTasks();
       let hasChanges = false;
 
       // Находим выполненные повторяющиеся задачи
@@ -481,6 +511,8 @@ export const taskStorage = {
       if (hasChanges) {
         await this.saveTasks(tasks);
       }
+
+      await setLastRecurringCheckDate(now);
     } catch (error) {
       console.error("Error checking recurring tasks:", error);
     }
