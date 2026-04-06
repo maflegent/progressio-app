@@ -1,4 +1,3 @@
-import { Colors } from "@/constants/Colors";
 import {
   cancelDailyReminder,
   requestNotificationPermissions,
@@ -175,10 +174,4 @@ export function useAppTheme() {
   };
 
   return getActiveTheme();
-}
-
-// Вспомогательный хук для получения актуальных цветов с учетом темы
-export function useThemeColors() {
-  const colorScheme = useAppTheme();
-  return Colors[colorScheme];
 }

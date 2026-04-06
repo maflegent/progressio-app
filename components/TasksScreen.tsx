@@ -2,7 +2,9 @@
 import { TaskCreator, TaskFormData } from "@/components/TaskCreator";
 import { Colors } from "@/constants/Colors";
 import { SHADOWS } from "@/constants/Styles";
+import { useFolders } from "@/contexts/FoldersContext";
 import { useAppTheme } from "@/contexts/SettingsContext";
+import { useTags } from "@/contexts/TagsContext";
 import { useTasks } from "@/contexts/TaskContext";
 import { Task, TaskPriority } from "@/types";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,8 +31,7 @@ const PRIORITY_COLORS = {
   low: "#10B981",
 } as const;
 
-const FOLDER_CONFIG = {
-  all: { label: "Все", icon: "list", color: "#6B7280" },
+const DEFAULT_FOLDER_CONFIG = {
   work: { label: "Работа", icon: "briefcase", color: "#3B82F6" },
   personal: { label: "Личное", icon: "heart", color: "#EC4899" },
   study: { label: "Учеба", icon: "school", color: "#8B5CF6" },
@@ -40,7 +41,7 @@ const FOLDER_CONFIG = {
   other: { label: "Другое", icon: "folder", color: "#6B7280" },
 } as const;
 
-type FolderKey = keyof typeof FOLDER_CONFIG;
+type DefaultFolderKey = keyof typeof DEFAULT_FOLDER_CONFIG;
 
 const TaskCard: React.FC<{
   task: Task;
@@ -74,8 +75,11 @@ const TaskCard: React.FC<{
   };
 
   const folder = task.folder || "other";
-  const folderConfig =
-    FOLDER_CONFIG[folder as FolderKey] || FOLDER_CONFIG.other;
+  const folderConfig = DEFAULT_FOLDER_CONFIG[folder as DefaultFolderKey] || {
+    label: "Другое",
+    icon: "folder",
+    color: "#6B7280",
+  };
 
   return (
     <TouchableOpacity
@@ -206,6 +210,27 @@ export const TasksScreen: React.FC = () => {
     toggleTaskCompletion,
     refreshTasks,
   } = useTasks();
+  const { customFolders, addCustomFolder, removeCustomFolder } = useFolders();
+  const { customTags, removeCustomTag } = useTags();
+
+  // Объединяем дефолтные и пользовательские папки
+  const FOLDER_CONFIG: Record<
+    string,
+    { label: string; icon: string; color: string }
+  > = {
+    all: { label: "Все", icon: "list", color: "#6B7280" },
+    ...DEFAULT_FOLDER_CONFIG,
+    ...customFolders.reduce<
+      Record<string, { label: string; icon: string; color: string }>
+    >((acc, folder) => {
+      acc[folder.id] = {
+        label: folder.label,
+        icon: folder.icon,
+        color: folder.color,
+      };
+      return acc;
+    }, {}),
+  };
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
@@ -214,13 +239,43 @@ export const TasksScreen: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | "all">(
     "all",
   );
-  const [selectedFolder, setSelectedFolder] = useState<FolderKey>("all");
+  const [selectedFolder, setSelectedFolder] = useState<string>("all");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [showCreator, setShowCreator] = useState(false);
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [showTagModal, setShowTagModal] = useState(false);
   const [showPriorityModal, setShowPriorityModal] = useState(false);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Состояние для создания новой папки
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderIcon, setNewFolderIcon] = useState("folder");
+  const [newFolderColor, setNewFolderColor] = useState("#6B7280");
+
+  const FOLDER_ICONS = [
+    "folder",
+    "briefcase",
+    "heart",
+    "school",
+    "cart",
+    "fitness",
+    "bulb",
+    "star",
+    "bookmark",
+    "cloud",
+  ];
+  const FOLDER_COLORS = [
+    "#6B7280",
+    "#3B82F6",
+    "#EC4899",
+    "#8B5CF6",
+    "#10B981",
+    "#EF4444",
+    "#F59E0B",
+    "#06B6D4",
+    "#84CC16",
+  ];
 
   const allTags = useMemo(
     () => Array.from(new Set(tasks.flatMap((t) => t.tags || []))),
@@ -750,11 +805,77 @@ export const TasksScreen: React.FC = () => {
                 <Ionicons name="close" size={24} color={colors.muted} />
               </TouchableOpacity>
             </View>
-            <ScrollView>
+
+            {/* Кнопка создания новой папки */}
+            <TouchableOpacity
+              style={[
+                styles.addNewFolderButton,
+                {
+                  backgroundColor: colors.primary + "15",
+                  borderColor: colors.primary,
+                },
+              ]}
+              onPress={() => {
+                setShowFolderModal(false);
+                setShowNewFolderModal(true);
+              }}
+            >
+              <Ionicons name="add-circle" size={24} color={colors.primary} />
+              <Text
+                style={[styles.addNewFolderText, { color: colors.primary }]}
+              >
+                Создать новую папку
+              </Text>
+            </TouchableOpacity>
+
+            <ScrollView style={{ maxHeight: 300 }}>
+              {/* Опция "Все" */}
+              <TouchableOpacity
+                key="all"
+                style={[
+                  styles.modalOption,
+                  {
+                    backgroundColor:
+                      selectedFolder === "all"
+                        ? FOLDER_CONFIG.all.color + "20"
+                        : "transparent",
+                  },
+                ]}
+                onPress={() => {
+                  setSelectedFolder("all");
+                  setShowFolderModal(false);
+                }}
+              >
+                <View
+                  style={[
+                    styles.folderIconContainer,
+                    { backgroundColor: FOLDER_CONFIG.all.color + "20" },
+                  ]}
+                >
+                  <Ionicons
+                    name={FOLDER_CONFIG.all.icon as any}
+                    size={24}
+                    color={FOLDER_CONFIG.all.color}
+                  />
+                </View>
+                <Text
+                  style={[styles.modalOptionText, { color: colors.foreground }]}
+                >
+                  Все папки
+                </Text>
+                {selectedFolder === "all" && (
+                  <Ionicons
+                    name="checkmark"
+                    size={20}
+                    color={FOLDER_CONFIG.all.color}
+                  />
+                )}
+              </TouchableOpacity>
+
               {(
-                Object.entries(FOLDER_CONFIG) as [
-                  FolderKey,
-                  (typeof FOLDER_CONFIG)[FolderKey],
+                Object.entries(DEFAULT_FOLDER_CONFIG) as [
+                  DefaultFolderKey,
+                  (typeof DEFAULT_FOLDER_CONFIG)[DefaultFolderKey],
                 ][]
               ).map(([key, config]) => (
                 <TouchableOpacity
@@ -798,7 +919,200 @@ export const TasksScreen: React.FC = () => {
                   )}
                 </TouchableOpacity>
               ))}
+
+              {/* Пользовательские папки */}
+              {customFolders.map((folder) => (
+                <TouchableOpacity
+                  key={folder.id}
+                  style={[
+                    styles.modalOption,
+                    {
+                      backgroundColor:
+                        selectedFolder === folder.id
+                          ? folder.color + "20"
+                          : "transparent",
+                    },
+                  ]}
+                  onPress={() => {
+                    setSelectedFolder(folder.id);
+                    setShowFolderModal(false);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.folderIconContainer,
+                      { backgroundColor: folder.color + "20" },
+                    ]}
+                  >
+                    <Ionicons
+                      name={folder.icon as any}
+                      size={24}
+                      color={folder.color}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.modalOptionText,
+                      { color: colors.foreground, flex: 1 },
+                    ]}
+                  >
+                    {folder.label}
+                  </Text>
+                  {selectedFolder === folder.id && (
+                    <Ionicons name="checkmark" size={20} color={folder.color} />
+                  )}
+                  <TouchableOpacity
+                    onPress={() => removeCustomFolder(folder.id)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* New Folder Modal */}
+      <Modal
+        visible={showNewFolderModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewFolderModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowNewFolderModal(false)}
+        >
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: colors.background },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                Новая папка
+              </Text>
+              <TouchableOpacity onPress={() => setShowNewFolderModal(false)}>
+                <Ionicons name="close" size={24} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={[
+                styles.fieldLabel,
+                { color: colors.foreground, marginBottom: 8 },
+              ]}
+            >
+              Название
+            </Text>
+            <TextInput
+              style={[
+                styles.newFolderInput,
+                {
+                  backgroundColor: colors.card,
+                  color: colors.foreground,
+                  borderColor: colors.border,
+                },
+              ]}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              placeholder="Введите название папки"
+              placeholderTextColor={colors.muted}
+            />
+
+            <Text
+              style={[
+                styles.fieldLabel,
+                { color: colors.foreground, marginTop: 16, marginBottom: 8 },
+              ]}
+            >
+              Иконка
+            </Text>
+            <View style={styles.iconPicker}>
+              {FOLDER_ICONS.map((icon) => (
+                <TouchableOpacity
+                  key={icon}
+                  style={[
+                    styles.iconPickerItem,
+                    {
+                      backgroundColor:
+                        newFolderIcon === icon ? colors.primary : colors.card,
+                      borderColor:
+                        newFolderIcon === icon ? colors.primary : colors.border,
+                    },
+                  ]}
+                  onPress={() => setNewFolderIcon(icon)}
+                >
+                  <Ionicons
+                    name={icon as any}
+                    size={20}
+                    color={newFolderIcon === icon ? "#FFFFFF" : colors.muted}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text
+              style={[
+                styles.fieldLabel,
+                { color: colors.foreground, marginTop: 16, marginBottom: 8 },
+              ]}
+            >
+              Цвет
+            </Text>
+            <View style={styles.colorPicker}>
+              {FOLDER_COLORS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorPickerItem,
+                    {
+                      backgroundColor: color,
+                      borderColor:
+                        newFolderColor === color
+                          ? colors.foreground
+                          : "transparent",
+                    },
+                  ]}
+                  onPress={() => setNewFolderColor(color)}
+                >
+                  {newFolderColor === color && (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.createFolderButton,
+                {
+                  backgroundColor: newFolderName.trim()
+                    ? colors.primary
+                    : colors.muted,
+                },
+              ]}
+              onPress={async () => {
+                if (newFolderName.trim()) {
+                  await addCustomFolder({
+                    label: newFolderName.trim(),
+                    icon: newFolderIcon,
+                    color: newFolderColor,
+                  });
+                  setNewFolderName("");
+                  setNewFolderIcon("folder");
+                  setNewFolderColor("#6B7280");
+                  setShowNewFolderModal(false);
+                }
+              }}
+              disabled={!newFolderName.trim()}
+            >
+              <Text style={styles.createFolderButtonText}>Создать папку</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -936,7 +1250,7 @@ export const TasksScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
             <Text style={[styles.modalSubtitle, { color: colors.muted }]}>
-              Выберите один или несколько тегов
+              Выберите один или несколько тегов. Долгое нажатие - удалить тег.
             </Text>
             <ScrollView>
               <View style={styles.tagsGrid}>
@@ -957,6 +1271,25 @@ export const TasksScreen: React.FC = () => {
                         },
                       ]}
                       onPress={() => toggleTag(tag)}
+                      onLongPress={() => {
+                        Alert.alert(
+                          "Удалить тег",
+                          `Вы уверены, что хотите удалить тег "${tag}"?`,
+                          [
+                            { text: "Отмена", style: "cancel" },
+                            {
+                              text: "Удалить",
+                              style: "destructive",
+                              onPress: async () => {
+                                await removeCustomTag(tag);
+                                setSelectedTags((prev) =>
+                                  prev.filter((t) => t !== tag),
+                                );
+                              },
+                            },
+                          ],
+                        );
+                      }}
                     >
                       <Text
                         style={[
@@ -1021,8 +1354,12 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 16 },
-  filtersScroll: { marginBottom: 12 },
-  filtersContent: { paddingHorizontal: 16 },
+  filtersScroll: { marginBottom: 12, maxHeight: 48 },
+  filtersContent: {
+    paddingHorizontal: 16,
+    alignItems: "center",
+    minHeight: 40,
+  },
   filterChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -1178,4 +1515,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   clearTagsButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+
+  // Новые стили для папок
+  addNewFolderButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    marginBottom: 12,
+    gap: 10,
+  },
+  addNewFolderText: { fontSize: 16, fontWeight: "600" },
+  newFolderInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  iconPicker: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  iconPickerItem: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  colorPicker: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  colorPickerItem: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+  },
+  createFolderButton: {
+    marginTop: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  createFolderButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+  fieldLabel: { fontSize: 14, fontWeight: "600" },
 });

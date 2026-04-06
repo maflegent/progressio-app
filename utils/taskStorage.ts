@@ -1,5 +1,5 @@
 // utils/taskStorage.ts
-import { EisenhowerMatrix, Task, TaskPriority } from "@/types";
+import { Task } from "@/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   generateRecurringTasks,
@@ -16,7 +16,7 @@ let idCounter = 0;
 // Вспомогательные функции
 const generateId = (): string => {
   idCounter++;
-  return `${Date.now()}_${idCounter}_${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}_${idCounter}_${Math.random().toString(36).substring(2, 11)}`;
 };
 
 // Конвертация дат при сериализации/десериализации
@@ -249,224 +249,6 @@ export const taskStorage = {
     }
   },
 
-  // Получить задачу по ID
-  async getTaskById(id: string): Promise<Task | null> {
-    try {
-      const tasks = await this.getAllTasks();
-      return tasks.find((task) => task.id === id) || null;
-    } catch (error) {
-      console.error("Error getting task by id:", error);
-      return null;
-    }
-  },
-
-  // Получить задачи по фильтру
-  async getTasksByFilter(filter: {
-    isCompleted?: boolean;
-    priority?: TaskPriority;
-    tags?: string[];
-    searchQuery?: string;
-    eisenhower?: EisenhowerMatrix;
-    showRecurring?: boolean;
-    dueDate?: Date;
-  }): Promise<Task[]> {
-    try {
-      const tasks = await this.getAllTasks();
-
-      return tasks.filter((task) => {
-        // Фильтр по статусу выполнения
-        if (
-          filter.isCompleted !== undefined &&
-          task.isCompleted !== filter.isCompleted
-        ) {
-          return false;
-        }
-
-        // Фильтр по приоритету
-        if (filter.priority && task.priority !== filter.priority) {
-          return false;
-        }
-
-        // Фильтр по матрице Эйзенхауэра
-        if (filter.eisenhower && task.eisenhower !== filter.eisenhower) {
-          return false;
-        }
-
-        // Фильтр по тегам
-        if (filter.tags && filter.tags.length > 0) {
-          const hasAllTags = filter.tags.every((tag) =>
-            task.tags.includes(tag),
-          );
-          if (!hasAllTags) return false;
-        }
-
-        // Фильтр по повторяющимся задачам
-        if (filter.showRecurring !== undefined) {
-          if (filter.showRecurring && !task.isRecurring) return false;
-          if (!filter.showRecurring && task.isRecurring) return false;
-        }
-
-        // Фильтр по дате выполнения
-        if (filter.dueDate && task.dueDate) {
-          const dueDate = new Date(filter.dueDate);
-          const taskDueDate = new Date(task.dueDate);
-          if (taskDueDate.toDateString() !== dueDate.toDateString()) {
-            return false;
-          }
-        }
-
-        // Поиск по тексту
-        if (filter.searchQuery) {
-          const query = filter.searchQuery.toLowerCase();
-          const matchesTitle = task.title.toLowerCase().includes(query);
-          const matchesDescription =
-            task.description?.toLowerCase().includes(query) || false;
-          const matchesTags = task.tags.some((tag) =>
-            tag.toLowerCase().includes(query),
-          );
-
-          if (!matchesTitle && !matchesDescription && !matchesTags) {
-            return false;
-          }
-        }
-
-        return true;
-      });
-    } catch (error) {
-      console.error("Error filtering tasks:", error);
-      return [];
-    }
-  },
-
-  // Получить задачи для матрицы Эйзенхауэра
-  async getTasksForEisenhowerMatrix(): Promise<{
-    do: Task[];
-    decide: Task[];
-    delegate: Task[];
-    delete: Task[];
-  }> {
-    try {
-      const tasks = await this.getAllTasks();
-      const pendingTasks = tasks.filter((task) => !task.isCompleted);
-
-      const result = {
-        do: [] as Task[],
-        decide: [] as Task[],
-        delegate: [] as Task[],
-        delete: [] as Task[],
-      };
-
-      pendingTasks.forEach((task) => {
-        if (task.eisenhower && result[task.eisenhower]) {
-          result[task.eisenhower].push(task);
-        }
-      });
-
-      return result;
-    } catch (error) {
-      console.error("Error getting Eisenhower matrix:", error);
-      return { do: [], decide: [], delegate: [], delete: [] };
-    }
-  },
-
-  // Получить статистику по задачам
-  async getTaskStats(): Promise<{
-    total: number;
-    completed: number;
-    pending: number;
-    overdue: number;
-    recurring: number;
-    byPriority: Record<TaskPriority, number>;
-    byEisenhower: Record<EisenhowerMatrix, number>;
-  }> {
-    try {
-      const tasks = await this.getAllTasks();
-      const now = new Date();
-
-      const stats = {
-        total: tasks.length,
-        completed: tasks.filter((t) => t.isCompleted).length,
-        pending: tasks.filter((t) => !t.isCompleted).length,
-        overdue: tasks.filter(
-          (t) => !t.isCompleted && t.dueDate && new Date(t.dueDate) < now,
-        ).length,
-        recurring: tasks.filter((t) => t.isRecurring).length,
-        byPriority: {
-          low: 0,
-          medium: 0,
-          high: 0,
-          urgent: 0,
-        } as Record<TaskPriority, number>,
-        byEisenhower: {
-          do: 0,
-          decide: 0,
-          delegate: 0,
-          delete: 0,
-        } as Record<EisenhowerMatrix, number>,
-      };
-
-      // Подсчет по приоритетам
-      tasks.forEach((task) => {
-        stats.byPriority[task.priority]++;
-      });
-
-      // Подсчет по матрице Эйзенхауэра
-      tasks
-        .filter((t) => !t.isCompleted)
-        .forEach((task) => {
-          if (task.eisenhower) {
-            stats.byEisenhower[task.eisenhower]++;
-          }
-        });
-
-      return stats;
-    } catch (error) {
-      console.error("Error getting task stats:", error);
-      return {
-        total: 0,
-        completed: 0,
-        pending: 0,
-        overdue: 0,
-        recurring: 0,
-        byPriority: { low: 0, medium: 0, high: 0, urgent: 0 },
-        byEisenhower: { do: 0, decide: 0, delegate: 0, delete: 0 },
-      };
-    }
-  },
-
-  // Получить задачи на сегодня
-  async getTodayTasks(): Promise<Task[]> {
-    try {
-      const tasks = await this.getAllTasks();
-      const today = new Date();
-
-      return tasks.filter((task) => {
-        if (task.isCompleted) return false;
-
-        if (task.dueDate) {
-          const dueDate = new Date(task.dueDate);
-          return dueDate.toDateString() === today.toDateString();
-        }
-
-        return false;
-      });
-    } catch (error) {
-      console.error("Error getting today tasks:", error);
-      return [];
-    }
-  },
-
-  // Получить повторяющиеся задачи
-  async getRecurringTasks(): Promise<Task[]> {
-    try {
-      const tasks = await this.getAllTasks();
-      return tasks.filter((task) => task.isRecurring);
-    } catch (error) {
-      console.error("Error getting recurring tasks:", error);
-      return [];
-    }
-  },
-
   // Проверить и создать повторяющиеся задачи (для запуска при старте приложения)
   async checkAndGenerateRecurringTasks(): Promise<void> {
     try {
@@ -518,52 +300,13 @@ export const taskStorage = {
     }
   },
 
-  // Очистить все задачи (для тестов)
+  // Очистить все задачи (для тестов/сброса)
   async clearAll(): Promise<void> {
     try {
       await AsyncStorage.removeItem(TASKS_KEY);
     } catch (error) {
       console.error("Error clearing tasks:", error);
       throw error;
-    }
-  },
-
-  // Экспорт задач
-  async exportTasks(): Promise<string> {
-    try {
-      const tasks = await this.getAllTasks();
-      return JSON.stringify(tasks, null, 2);
-    } catch (error) {
-      console.error("Error exporting tasks:", error);
-      throw error;
-    }
-  },
-
-  // Импорт задач
-  async importTasks(jsonString: string): Promise<boolean> {
-    try {
-      const importedTasks = JSON.parse(jsonString);
-
-      // Валидация импортированных данных
-      const validTasks = importedTasks
-        .filter((task: any) => task.id && task.title && task.priority)
-        .map((task: any) => ({
-          ...task,
-          dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-          createdAt: new Date(task.createdAt || new Date()),
-          updatedAt: new Date(task.updatedAt || new Date()),
-        }));
-
-      if (validTasks.length === 0) return false;
-
-      const currentTasks = await this.getAllTasks();
-      const allTasks = [...currentTasks, ...validTasks];
-
-      await this.saveTasks(allTasks);
-      return true;
-    } catch (error) {
-      console.error("Error importing tasks:", error);
-      return false;
     }
   },
 };

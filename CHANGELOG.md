@@ -2,9 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2025-01-?? (Initial Release)
+## [1.0.0] - 2025-11-?? (Initial Release)
 
 ### Added
+
 - **Задачи**
   - Главный экран задач с списком
   - Редактирование задач (task-edit.tsx)
@@ -42,12 +43,14 @@ All notable changes to this project will be documented in this file.
   - Themed.tsx - темизация
 
 ### Modified
+
 - Настроена цветовая схема (constants/Colors.ts)
 - Настроены стили (constants/Styles.ts)
 - Настроены иконки (constants/Icons.ts)
 - Обновлена конфигурация Expo (app.json, eas.json)
 
 ### Technical
+
 - Expo SDK 54
 - Expo Router для навигации
 - TypeScript

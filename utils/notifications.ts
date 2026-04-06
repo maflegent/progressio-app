@@ -13,11 +13,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Проверка поддержки уведомлений
-export function areNotificationsSupported(): boolean {
-  return true;
-}
-
 // Запрос разрешения на уведомления
 export async function requestNotificationPermissions(): Promise<boolean> {
   try {
@@ -159,48 +154,5 @@ export async function cancelDailyReminder() {
     );
   } catch (error) {
     console.warn("Ошибка отмены ежедневного напоминания:", error);
-  }
-}
-
-// Отменить все напоминания
-export async function cancelAllReminders() {
-  try {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-  } catch (error) {
-    console.warn("Ошибка отмены всех напоминаний:", error);
-  }
-}
-
-// Получить все запланированные уведомления
-export async function getScheduledNotifications() {
-  try {
-    return await Notifications.getAllScheduledNotificationsAsync();
-  } catch (error) {
-    console.warn("Ошибка получения запланированных уведомлений:", error);
-    return [];
-  }
-}
-
-// Добавить слушатель уведомлений
-export function addNotificationListener(
-  callback: (notification: Notifications.Notification) => void,
-) {
-  try {
-    return Notifications.addNotificationReceivedListener(callback);
-  } catch (error) {
-    console.warn("Ошибка добавления слушателя уведомлений:", error);
-    return { remove: () => {} };
-  }
-}
-
-// Добавить слушатель ответа на уведомление
-export function addNotificationResponseListener(
-  callback: (response: Notifications.NotificationResponse) => void,
-) {
-  try {
-    return Notifications.addNotificationResponseReceivedListener(callback);
-  } catch (error) {
-    console.warn("Ошибка добавления слушателя ответов:", error);
-    return { remove: () => {} };
   }
 }

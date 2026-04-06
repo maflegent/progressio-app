@@ -93,15 +93,6 @@ export const diaryStorage = {
     }
   },
 
-  // Очистить все записи (для тестов)
-  async clearAll(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(DIARY_KEY);
-    } catch (error) {
-      console.error("Error clearing diary entries:", error);
-    }
-  },
-
   // Добавлен отсутствующий метод getMoodStats
   async getMoodStats(period: "week" | "month" | "year"): Promise<{
     moodCounts: Record<string, number>;

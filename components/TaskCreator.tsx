@@ -1,4 +1,5 @@
 import { Colors } from "@/constants/Colors";
+import { useFolders } from "@/contexts/FoldersContext";
 import { useTags } from "@/contexts/TagsContext";
 import { TaskPriority } from "@/types";
 import {
@@ -13,7 +14,6 @@ import { ru } from "date-fns/locale";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -24,8 +24,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 // --- Типы ---
 
@@ -57,7 +55,7 @@ const PRIORITY_CONFIG = {
   low: { label: "Низкий", icon: "trending-down", color: "#10B981" },
 } as const;
 
-const FOLDER_CONFIG = {
+const DEFAULT_FOLDER_CONFIG = {
   work: { label: "Работа", icon: "briefcase", color: "#3B82F6" },
   personal: { label: "Личное", icon: "heart", color: "#EC4899" },
   study: { label: "Учеба", icon: "school", color: "#8B5CF6" },
@@ -66,6 +64,8 @@ const FOLDER_CONFIG = {
   ideas: { label: "Идеи", icon: "bulb", color: "#F59E0B" },
   other: { label: "Другое", icon: "folder", color: "#6B7280" },
 } as const;
+
+type FolderConfigKey = keyof typeof DEFAULT_FOLDER_CONFIG;
 
 const REMINDER_OPTIONS = [
   { value: null, label: "Без напоминания" },
@@ -119,8 +119,27 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
   mode = "create",
 }) => {
   const { customTags, addCustomTag } = useTags();
+  const { customFolders } = useFolders();
   const colorScheme = "light";
   const colors = Colors[colorScheme];
+
+  // Объединяем дефолтные и пользовательские папки
+  const allFolders: Record<
+    string,
+    { label: string; icon: string; color: string }
+  > = {
+    ...DEFAULT_FOLDER_CONFIG,
+    ...customFolders.reduce<
+      Record<string, { label: string; icon: string; color: string }>
+    >((acc, folder) => {
+      acc[folder.id] = {
+        label: folder.label,
+        icon: folder.icon,
+        color: folder.color,
+      };
+      return acc;
+    }, {}),
+  };
 
   // Состояние формы
   const [formData, setFormData] = useState<TaskFormData>({
@@ -383,9 +402,9 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
         </Text>
         <View style={styles.folderGrid}>
           {(
-            Object.entries(FOLDER_CONFIG) as [
-              keyof typeof FOLDER_CONFIG,
-              (typeof FOLDER_CONFIG)[keyof typeof FOLDER_CONFIG],
+            Object.entries(allFolders) as [
+              string,
+              { label: string; icon: string; color: string },
             ][]
           ).map(([key, config]) => (
             <TouchableOpacity
@@ -401,7 +420,9 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
                   borderLeftColor: config.color,
                 },
               ]}
-              onPress={() => setFormData((prev) => ({ ...prev, folder: key }))}
+              onPress={() =>
+                setFormData((prev) => ({ ...prev, folder: String(key) }))
+              }
             >
               <View style={styles.folderContent}>
                 <Ionicons
@@ -658,7 +679,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
               mode="date"
               display={Platform.OS === "ios" ? "inline" : "default"}
               minimumDate={new Date()}
-              onChange={(event, date) => {
+              onChange={(_, date) => {
                 setShowDatePicker(false);
                 if (date) {
                   const newDate = new Date(date);
@@ -682,7 +703,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
               value={selectedReminderDate || new Date()}
               mode="time"
               display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={(event, date) => {
+              onChange={(_, date) => {
                 setShowTimePicker(false);
                 if (date && selectedReminderDate) {
                   const newDate = new Date(selectedReminderDate);

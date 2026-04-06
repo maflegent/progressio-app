@@ -1,6 +1,7 @@
 import { ThemedStatusBar } from "@/components/StatusBar";
 import { Colors } from "@/constants/Colors";
 import { DiaryProvider } from "@/contexts/DiaryContext";
+import { FoldersProvider } from "@/contexts/FoldersContext";
 import { SettingsProvider, useAppTheme } from "@/contexts/SettingsContext";
 import { TagsProvider } from "@/contexts/TagsContext";
 import { TaskProvider } from "@/contexts/TaskContext";
@@ -71,13 +72,15 @@ export default function RootLayout() {
 
   return (
     <SettingsProvider>
-      <TagsProvider>
-        <TaskProvider>
-          <DiaryProvider>
-            <ThemedStack />
-          </DiaryProvider>
-        </TaskProvider>
-      </TagsProvider>
+      <FoldersProvider>
+        <TagsProvider>
+          <TaskProvider>
+            <DiaryProvider>
+              <ThemedStack />
+            </DiaryProvider>
+          </TaskProvider>
+        </TagsProvider>
+      </FoldersProvider>
     </SettingsProvider>
   );
 }

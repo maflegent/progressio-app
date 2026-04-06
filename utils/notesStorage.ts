@@ -1,8 +1,8 @@
 // utils/notesStorage.ts - хранилище для заметок
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Note } from '@/types';
+import { Note } from "@/types";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const NOTES_KEY = '@progressio_notes';
+const NOTES_KEY = "@progressio_notes";
 
 export const notesStorage = {
   // Сохранить все заметки
@@ -16,7 +16,7 @@ export const notesStorage = {
       const jsonValue = JSON.stringify(serializedNotes);
       await AsyncStorage.setItem(NOTES_KEY, jsonValue);
     } catch (error) {
-      console.error('Error saving notes:', error);
+      console.error("Error saving notes:", error);
     }
   },
 
@@ -33,13 +33,15 @@ export const notesStorage = {
         updatedAt: new Date(note.updatedAt),
       }));
     } catch (error) {
-      console.error('Error loading notes:', error);
+      console.error("Error loading notes:", error);
       return [];
     }
   },
 
   // Добавить новую заметку
-  async addNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  async addNote(
+    note: Omit<Note, "id" | "createdAt" | "updatedAt">,
+  ): Promise<string> {
     try {
       const notes = await this.loadNotes();
       const now = new Date();
@@ -54,7 +56,7 @@ export const notesStorage = {
       await this.saveNotes(notes);
       return newNote.id;
     } catch (error) {
-      console.error('Error adding note:', error);
+      console.error("Error adding note:", error);
       throw error;
     }
   },
@@ -75,7 +77,7 @@ export const notesStorage = {
       await this.saveNotes(notes);
       return true;
     } catch (error) {
-      console.error('Error updating note:', error);
+      console.error("Error updating note:", error);
       return false;
     }
   },
@@ -91,7 +93,7 @@ export const notesStorage = {
       await this.saveNotes(filteredNotes);
       return true;
     } catch (error) {
-      console.error('Error deleting note:', error);
+      console.error("Error deleting note:", error);
       return false;
     }
   },
@@ -112,70 +114,8 @@ export const notesStorage = {
       await this.saveNotes(notes);
       return true;
     } catch (error) {
-      console.error('Error toggling pin:', error);
+      console.error("Error toggling pin:", error);
       return false;
-    }
-  },
-
-  // Получить заметки по папке
-  async getNotesByFolder(folder?: string): Promise<Note[]> {
-    try {
-      const notes = await this.loadNotes();
-      if (!folder || folder === 'all') {
-        return notes;
-      }
-      return notes.filter((note) => note.folder === folder);
-    } catch (error) {
-      console.error('Error getting notes by folder:', error);
-      return [];
-    }
-  },
-
-  // Поиск заметок
-  async searchNotes(query: string): Promise<Note[]> {
-    try {
-      const notes = await this.loadNotes();
-      const lowerQuery = query.toLowerCase();
-      return notes.filter(
-        (note) =>
-          note.title.toLowerCase().includes(lowerQuery) ||
-          note.content.toLowerCase().includes(lowerQuery),
-      );
-    } catch (error) {
-      console.error('Error searching notes:', error);
-      return [];
-    }
-  },
-
-  // Получить статистику
-  async getStats(): Promise<{ total: number; pinned: number; folders: Record<string, number> }> {
-    try {
-      const notes = await this.loadNotes();
-      const folders: Record<string, number> = {};
-
-      notes.forEach((note) => {
-        if (note.folder) {
-          folders[note.folder] = (folders[note.folder] || 0) + 1;
-        }
-      });
-
-      return {
-        total: notes.length,
-        pinned: notes.filter((n) => n.isPinned).length,
-        folders,
-      };
-    } catch (error) {
-      console.error('Error getting stats:', error);
-      return { total: 0, pinned: 0, folders: {} };
-    }
-  },
-
-  // Очистить все заметки (для тестов)
-  async clearAll(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(NOTES_KEY);
-    } catch (error) {
-      console.error('Error clearing notes:', error);
     }
   },
 };
