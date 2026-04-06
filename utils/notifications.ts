@@ -31,11 +31,26 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     }
 
     if (Platform.OS === "android") {
+      // Канал для напоминаний о задачах
       await Notifications.setNotificationChannelAsync("task-reminders", {
         name: "Напоминания о задачах",
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: "#3B82F6",
+      });
+      // Канал для утренних напоминаний
+      await Notifications.setNotificationChannelAsync("morning-reminders", {
+        name: "Утренние напоминания",
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#F59E0B",
+      });
+      // Канал для вечерних напоминаний
+      await Notifications.setNotificationChannelAsync("evening-reminders", {
+        name: "Вечерние напоминания",
+        importance: Notifications.AndroidImportance.DEFAULT,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#8B5CF6",
       });
     }
 
@@ -69,9 +84,9 @@ export async function scheduleTaskReminder(
 
     const identifier = await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Напоминание о задаче",
-        body: `Задача "${title}" должна быть выполнена через ${reminderMinutesBefore} минут`,
-        data: { taskId },
+        title: "⏰ Напоминание",
+        body: `Задача "${title}" через ${reminderMinutesBefore} мин`,
+        data: { taskId, type: "task-reminder" },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.HIGH,
       },
@@ -90,15 +105,16 @@ export async function scheduleTaskReminder(
   }
 }
 
-// Запланировать ежедневное напоминание
-export async function scheduleDailyReminder(hour: number, minute: number) {
+// Запланировать утреннее напоминание
+export async function scheduleMorningReminder(hour: number, minute: number) {
   try {
-    await cancelDailyReminder();
+    await cancelMorningReminder();
 
-    const identifier = await Notifications.scheduleNotificationAsync({
+    await Notifications.scheduleNotificationAsync({
       content: {
-        title: "Ежедневное напоминание",
-        body: "Проверьте свои задачи на сегодня!",
+        title: "☀️ Доброе утро!",
+        body: "У вас есть задачи на сегодня. Начните день продуктивно!",
+        data: { type: "morning-reminder" },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
@@ -109,13 +125,33 @@ export async function scheduleDailyReminder(hour: number, minute: number) {
         repeats: true,
       },
     });
-
-    return identifier;
   } catch (error) {
-    console.warn(
-      "Не удалось запланировать ежедневное напоминание (может быть в Expo Go):",
-      error,
-    );
+    console.warn("Не удалось запланировать утреннее напоминание:", error);
+  }
+}
+
+// Запланировать вечернее напоминание
+export async function scheduleEveningReminder(hour: number, minute: number) {
+  try {
+    await cancelEveningReminder();
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🌙 Вечерний чек-лист",
+        body: "Проверьте, все ли задачи выполнены сегодня?",
+        data: { type: "evening-reminder" },
+        sound: true,
+        priority: Notifications.AndroidNotificationPriority.DEFAULT,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        hour,
+        minute,
+        repeats: true,
+      },
+    });
+  } catch (error) {
+    console.warn("Не удалось запланировать вечернее напоминание:", error);
   }
 }
 
@@ -138,21 +174,61 @@ export async function cancelTaskReminder(taskId: string) {
   }
 }
 
-// Отменить ежедневное напоминание
-export async function cancelDailyReminder() {
+// Отменить утреннее напоминание
+export async function cancelMorningReminder() {
   try {
     const scheduledNotifications =
       await Notifications.getAllScheduledNotificationsAsync();
-    const dailyReminders = scheduledNotifications.filter(
-      (notif) => notif.content.title === "Ежедневное напоминание",
+    const morningReminders = scheduledNotifications.filter(
+      (notif) => notif.content.data?.type === "morning-reminder",
     );
 
     await Promise.all(
-      dailyReminders.map((notif) =>
+      morningReminders.map((notif) =>
         Notifications.cancelScheduledNotificationAsync(notif.identifier),
       ),
     );
   } catch (error) {
-    console.warn("Ошибка отмены ежедневного напоминания:", error);
+    console.warn("Ошибка отмены утреннего напоминания:", error);
+  }
+}
+
+// Отменить вечернее напоминание
+export async function cancelEveningReminder() {
+  try {
+    const scheduledNotifications =
+      await Notifications.getAllScheduledNotificationsAsync();
+    const eveningReminders = scheduledNotifications.filter(
+      (notif) => notif.content.data?.type === "evening-reminder",
+    );
+
+    await Promise.all(
+      eveningReminders.map((notif) =>
+        Notifications.cancelScheduledNotificationAsync(notif.identifier),
+      ),
+    );
+  } catch (error) {
+    console.warn("Ошибка отмены вечернего напоминания:", error);
+  }
+}
+
+// Отменить все напоминания (кроме задач)
+export async function cancelAllReminders() {
+  try {
+    const scheduledNotifications =
+      await Notifications.getAllScheduledNotificationsAsync();
+    const appReminders = scheduledNotifications.filter(
+      (notif) =>
+        notif.content.data?.type === "morning-reminder" ||
+        notif.content.data?.type === "evening-reminder",
+    );
+
+    await Promise.all(
+      appReminders.map((notif) =>
+        Notifications.cancelScheduledNotificationAsync(notif.identifier),
+      ),
+    );
+  } catch (error) {
+    console.warn("Ошибка отмены всех напоминаний:", error);
   }
 }

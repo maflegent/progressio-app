@@ -1,7 +1,10 @@
 import {
-  cancelDailyReminder,
+  cancelAllReminders,
+  cancelEveningReminder,
+  cancelMorningReminder,
   requestNotificationPermissions,
-  scheduleDailyReminder,
+  scheduleEveningReminder,
+  scheduleMorningReminder,
 } from "@/utils/notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
@@ -12,8 +15,12 @@ export type AppTheme = "light" | "dark" | "system";
 interface Settings {
   theme: AppTheme;
   notificationsEnabled: boolean;
-  dailyReminderEnabled: boolean;
-  dailyReminderTime: string; // HH:mm format
+  // Утреннее напоминание
+  morningReminderEnabled: boolean;
+  morningReminderTime: string; // HH:mm format
+  // Вечернее напоминание
+  eveningReminderEnabled: boolean;
+  eveningReminderTime: string; // HH:mm format
   soundEnabled: boolean;
   hapticFeedback: boolean;
   showCompletedTasks: boolean;
@@ -32,8 +39,10 @@ const SETTINGS_KEY = "@progressio_settings";
 const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   notificationsEnabled: true,
-  dailyReminderEnabled: false,
-  dailyReminderTime: "09:00",
+  morningReminderEnabled: true,
+  morningReminderTime: "08:00",
+  eveningReminderEnabled: true,
+  eveningReminderTime: "20:00",
   soundEnabled: true,
   hapticFeedback: true,
   showCompletedTasks: true,
@@ -57,34 +66,52 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     loadSettings();
   }, []);
 
-  // Управление ежедневным напоминанием
+  // Управление напоминаниями
   useEffect(() => {
     if (!isLoading) {
-      manageDailyReminder();
+      manageReminders();
     }
   }, [
-    settings.dailyReminderEnabled,
-    settings.dailyReminderTime,
+    settings.morningReminderEnabled,
+    settings.morningReminderTime,
+    settings.eveningReminderEnabled,
+    settings.eveningReminderTime,
     settings.notificationsEnabled,
     isLoading,
   ]);
 
-  const manageDailyReminder = async () => {
+  const manageReminders = async () => {
     try {
-      if (settings.dailyReminderEnabled && settings.notificationsEnabled) {
-        const [hour, minute] = settings.dailyReminderTime
+      if (!settings.notificationsEnabled) {
+        await cancelAllReminders();
+        return;
+      }
+
+      const hasPermission = await requestNotificationPermissions();
+      if (!hasPermission) return;
+
+      // Утреннее напоминание
+      if (settings.morningReminderEnabled) {
+        const [morningHour, morningMinute] = settings.morningReminderTime
           .split(":")
           .map(Number);
-        const hasPermission = await requestNotificationPermissions();
-        if (hasPermission) {
-          await scheduleDailyReminder(hour, minute);
-        }
+        await scheduleMorningReminder(morningHour, morningMinute);
       } else {
-        await cancelDailyReminder();
+        await cancelMorningReminder();
+      }
+
+      // Вечернее напоминание
+      if (settings.eveningReminderEnabled) {
+        const [eveningHour, eveningMinute] = settings.eveningReminderTime
+          .split(":")
+          .map(Number);
+        await scheduleEveningReminder(eveningHour, eveningMinute);
+      } else {
+        await cancelEveningReminder();
       }
     } catch (error) {
       console.warn(
-        "Ошибка управления ежедневным напоминанием (может быть в Expo Go):",
+        "Ошибка управления напоминаниями (может быть в Expo Go):",
         error,
       );
     }
@@ -128,7 +155,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const resetSettings = async () => {
     try {
-      await cancelDailyReminder();
+      await cancelAllReminders();
       setSettings(DEFAULT_SETTINGS);
       await AsyncStorage.setItem(
         SETTINGS_KEY,

@@ -152,11 +152,6 @@ export default function SettingsScreen() {
     updateSettings({ defaultPriority: nextPriority });
   };
 
-  // Обработка смены времени напоминания
-  const handleReminderTimeChange = () => {
-    Alert.alert("Время напоминания", "Функция выбора времени в разработке");
-  };
-
   // Сброс настроек
   const handleResetSettings = () => {
     Alert.alert(
@@ -268,22 +263,51 @@ export default function SettingsScreen() {
             }
             showChevron={false}
           />
+
+          {/* Утреннее напоминание */}
           <SettingItem
-            icon="time"
-            title="Ежедневное напоминание"
-            subtitle={`В ${settings.dailyReminderTime}`}
+            icon="sunny"
+            title="☀️ Утреннее напоминание"
+            subtitle={
+              settings.morningReminderEnabled
+                ? `В ${settings.morningReminderTime}`
+                : "Отключено"
+            }
             colors={colors}
             rightComponent={
               <ToggleSwitch
-                value={settings.dailyReminderEnabled}
+                value={settings.morningReminderEnabled}
                 onValueChange={(value) =>
-                  updateSettings({ dailyReminderEnabled: value })
+                  updateSettings({ morningReminderEnabled: value })
                 }
                 colors={colors}
               />
             }
-            onPress={handleReminderTimeChange}
+            showChevron={false}
           />
+
+          {/* Вечернее напоминание */}
+          <SettingItem
+            icon="moon"
+            title="🌙 Вечернее напоминание"
+            subtitle={
+              settings.eveningReminderEnabled
+                ? `В ${settings.eveningReminderTime}`
+                : "Отключено"
+            }
+            colors={colors}
+            rightComponent={
+              <ToggleSwitch
+                value={settings.eveningReminderEnabled}
+                onValueChange={(value) =>
+                  updateSettings({ eveningReminderEnabled: value })
+                }
+                colors={colors}
+              />
+            }
+            showChevron={false}
+          />
+
           <SettingItem
             icon="volume-high"
             title="Звуки"
