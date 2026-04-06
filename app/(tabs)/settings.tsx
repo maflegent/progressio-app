@@ -2,9 +2,11 @@ import { Colors } from "@/constants/Colors";
 import { AppTheme, useAppTheme, useSettings } from "@/contexts/SettingsContext";
 import { useTasks } from "@/contexts/TaskContext";
 import { Ionicons } from "@expo/vector-icons";
-import React from "react";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import React, { useState } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -100,6 +102,53 @@ export default function SettingsScreen() {
   const colors = Colors[colorScheme];
   const { settings, updateSettings, resetSettings } = useSettings();
   const { tasks, clearAllTasks } = useTasks();
+
+  // Состояния для выбора времени
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [selectedTimeType, setSelectedTimeType] = useState<
+    "morning" | "evening" | null
+  >(null);
+
+  // Получить дату из строки времени HH:mm
+  const getTimeFromString = (timeString: string): Date => {
+    const [hours, minutes] = timeString.split(":").map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+  };
+
+  // Открыть пикер времени
+  const handleOpenTimePicker = (type: "morning" | "evening") => {
+    setSelectedTimeType(type);
+    setShowTimePicker(true);
+  };
+
+  // Обработка выбора времени
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
+    setShowTimePicker(false);
+    if (selectedDate && selectedTimeType) {
+      const hours = selectedDate.getHours().toString().padStart(2, "0");
+      const minutes = selectedDate.getMinutes().toString().padStart(2, "0");
+      const timeString = `${hours}:${minutes}`;
+
+      if (selectedTimeType === "morning") {
+        updateSettings({ morningReminderTime: timeString });
+      } else {
+        updateSettings({ eveningReminderTime: timeString });
+      }
+    }
+    setSelectedTimeType(null);
+  };
+
+  // Получить текущее время для пикера
+  const getCurrentPickerTime = (): Date => {
+    if (selectedTimeType === "morning") {
+      return getTimeFromString(settings.morningReminderTime);
+    } else if (selectedTimeType === "evening") {
+      return getTimeFromString(settings.eveningReminderTime);
+    }
+    return new Date();
+  };
 
   // Получить отображаемое название темы
   const getThemeName = () => {
@@ -265,16 +314,30 @@ export default function SettingsScreen() {
           />
 
           {/* Утреннее напоминание */}
-          <SettingItem
-            icon="sunny"
-            title="☀️ Утреннее напоминание"
-            subtitle={
-              settings.morningReminderEnabled
-                ? `В ${settings.morningReminderTime}`
-                : "Отключено"
-            }
-            colors={colors}
-            rightComponent={
+          <TouchableOpacity
+            style={[styles.settingItem, { borderBottomColor: colors.border }]}
+            onPress={() => handleOpenTimePicker("morning")}
+            disabled={!settings.morningReminderEnabled}
+          >
+            <View
+              style={[
+                styles.settingIcon,
+                { backgroundColor: "#F59E0B" + "20" },
+              ]}
+            >
+              <Ionicons name="sunny" size={22} color="#F59E0B" />
+            </View>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, { color: colors.foreground }]}>
+                ☀️ Утреннее напоминание
+              </Text>
+              <Text style={[styles.settingSubtitle, { color: colors.muted }]}>
+                {settings.morningReminderEnabled
+                  ? `В ${settings.morningReminderTime} — нажмите для изменения`
+                  : "Отключено"}
+              </Text>
+            </View>
+            <View style={styles.settingRight}>
               <ToggleSwitch
                 value={settings.morningReminderEnabled}
                 onValueChange={(value) =>
@@ -282,21 +345,34 @@ export default function SettingsScreen() {
                 }
                 colors={colors}
               />
-            }
-            showChevron={false}
-          />
+            </View>
+          </TouchableOpacity>
 
           {/* Вечернее напоминание */}
-          <SettingItem
-            icon="moon"
-            title="🌙 Вечернее напоминание"
-            subtitle={
-              settings.eveningReminderEnabled
-                ? `В ${settings.eveningReminderTime}`
-                : "Отключено"
-            }
-            colors={colors}
-            rightComponent={
+          <TouchableOpacity
+            style={[styles.settingItem, { borderBottomColor: colors.border }]}
+            onPress={() => handleOpenTimePicker("evening")}
+            disabled={!settings.eveningReminderEnabled}
+          >
+            <View
+              style={[
+                styles.settingIcon,
+                { backgroundColor: "#8B5CF6" + "20" },
+              ]}
+            >
+              <Ionicons name="moon" size={22} color="#8B5CF6" />
+            </View>
+            <View style={styles.settingInfo}>
+              <Text style={[styles.settingTitle, { color: colors.foreground }]}>
+                🌙 Вечернее напоминание
+              </Text>
+              <Text style={[styles.settingSubtitle, { color: colors.muted }]}>
+                {settings.eveningReminderEnabled
+                  ? `В ${settings.eveningReminderTime} — нажмите для изменения`
+                  : "Отключено"}
+              </Text>
+            </View>
+            <View style={styles.settingRight}>
               <ToggleSwitch
                 value={settings.eveningReminderEnabled}
                 onValueChange={(value) =>
@@ -304,9 +380,8 @@ export default function SettingsScreen() {
                 }
                 colors={colors}
               />
-            }
-            showChevron={false}
-          />
+            </View>
+          </TouchableOpacity>
 
           <SettingItem
             icon="volume-high"
@@ -471,6 +546,68 @@ export default function SettingsScreen() {
 
         {/* Нижний отступ */}
         <View style={styles.bottomSpacer} />
+
+        {/* Time Picker Modal */}
+        {showTimePicker && (
+          <Modal
+            visible={showTimePicker}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowTimePicker(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View
+                style={[styles.modalContent, { backgroundColor: colors.card }]}
+              >
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                  {selectedTimeType === "morning"
+                    ? "☀️ Выберите время утреннего напоминания"
+                    : "🌙 Выберите время вечернего напоминания"}
+                </Text>
+
+                <DateTimePicker
+                  value={getCurrentPickerTime()}
+                  mode="time"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={handleTimeChange}
+                  minuteInterval={5}
+                />
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      { backgroundColor: colors.border },
+                    ]}
+                    onPress={() => setShowTimePicker(false)}
+                  >
+                    <Text
+                      style={[
+                        styles.modalButtonText,
+                        { color: colors.foreground },
+                      ]}
+                    >
+                      Отмена
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.modalButton,
+                      { backgroundColor: colors.primary },
+                    ]}
+                    onPress={() => setShowTimePicker(false)}
+                  >
+                    <Text
+                      style={[styles.modalButtonText, { color: "#FFFFFF" }]}
+                    >
+                      Готово
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -568,5 +705,39 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 32,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "85%",
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  modalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+    width: "100%",
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
