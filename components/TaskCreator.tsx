@@ -617,8 +617,8 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
         )}
       </View>
 
-      {/* Напоминание (показываем только если есть дата) */}
-      {formData.dueDate && (
+      {/* Напоминание (временно отключено) */}
+      {false && (
         <View style={styles.fieldGroup}>
           <Text style={[styles.fieldLabel, { color: colors.foreground }]}>
             Напоминание
@@ -697,7 +697,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
               ]}
             >
               {selectedReminderDate
-                ? `Напомнить ${format(selectedReminderDate, "d MMM 'в' HH:mm", { locale: ru })}`
+                ? `Напомнить ${format(selectedReminderDate!, "d MMM 'в' HH:mm", { locale: ru })}`
                 : "Выбрать дату и время напоминания"}
             </Text>
             {selectedReminderDate && (
@@ -711,9 +711,9 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
           </TouchableOpacity>
 
           {/* Date Picker для напоминания */}
-          {showReminderDatePicker && (
+          {showReminderDatePicker && selectedReminderDate && (
             <DateTimePicker
-              value={selectedReminderDate || new Date()}
+              value={selectedReminderDate as any}
               mode="date"
               display={Platform.OS === "ios" ? "inline" : "default"}
               minimumDate={new Date()}
@@ -736,9 +736,9 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
           )}
 
           {/* Time Picker для напоминания */}
-          {showReminderTimePicker && (
+          {showReminderTimePicker && selectedReminderDate && (
             <DateTimePicker
-              value={selectedReminderDate || new Date()}
+              value={selectedReminderDate as any}
               mode="time"
               display={Platform.OS === "ios" ? "spinner" : "default"}
               onChange={(_, date) => {

@@ -8,6 +8,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { useSettings } from "./SettingsContext";
 
 interface TaskContextType {
   tasks: Task[];
@@ -45,11 +46,20 @@ interface TaskProviderProps {
 export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { updateRemindersWithTaskCount } = useSettings();
 
   // Загружаем задачи при монтировании
   useEffect(() => {
     loadTasks();
   }, []);
+
+  // Обновляем напоминания при изменении задач
+  useEffect(() => {
+    if (!isLoading) {
+      const activeTasksCount = tasks.filter((t) => !t.isCompleted).length;
+      updateRemindersWithTaskCount(activeTasksCount);
+    }
+  }, [tasks, isLoading, updateRemindersWithTaskCount]);
 
   const loadTasks = async () => {
     try {

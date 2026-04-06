@@ -31,6 +31,7 @@ interface Settings {
 interface SettingsContextType {
   settings: Settings;
   updateSettings: (updates: Partial<Settings>) => Promise<void>;
+  updateRemindersWithTaskCount: (activeTasksCount: number) => Promise<void>;
   resetSettings: () => Promise<void>;
 }
 
@@ -167,13 +168,56 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  // Обновить напоминания с учётом количества задач
+  const updateRemindersWithTaskCount = async (activeTasksCount: number) => {
+    try {
+      if (!settings.notificationsEnabled) {
+        return;
+      }
+
+      const hasPermission = await requestNotificationPermissions();
+      if (!hasPermission) return;
+
+      // Утреннее напоминание
+      if (settings.morningReminderEnabled) {
+        const [morningHour, morningMinute] = settings.morningReminderTime
+          .split(":")
+          .map(Number);
+        await scheduleMorningReminder(
+          morningHour,
+          morningMinute,
+          activeTasksCount,
+        );
+      }
+
+      // Вечернее напоминание
+      if (settings.eveningReminderEnabled) {
+        const [eveningHour, eveningMinute] = settings.eveningReminderTime
+          .split(":")
+          .map(Number);
+        await scheduleEveningReminder(
+          eveningHour,
+          eveningMinute,
+          activeTasksCount,
+        );
+      }
+    } catch (error) {
+      console.warn("Ошибка обновления напоминаний:", error);
+    }
+  };
+
   if (isLoading) {
     return null; // Или можно вернуть загрузочный индикатор
   }
 
   return (
     <SettingsContext.Provider
-      value={{ settings, updateSettings, resetSettings }}
+      value={{
+        settings,
+        updateSettings,
+        updateRemindersWithTaskCount,
+        resetSettings,
+      }}
     >
       {children}
     </SettingsContext.Provider>

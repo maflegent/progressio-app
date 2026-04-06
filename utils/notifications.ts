@@ -106,14 +106,29 @@ export async function scheduleTaskReminder(
 }
 
 // Запланировать утреннее напоминание
-export async function scheduleMorningReminder(hour: number, minute: number) {
+export async function scheduleMorningReminder(
+  hour: number,
+  minute: number,
+  activeTasksCount: number = 0,
+) {
   try {
     await cancelMorningReminder();
+
+    let bodyText: string;
+    if (activeTasksCount === 0) {
+      bodyText = "У вас нет активных задач. Отличный день для планирования!";
+    } else if (activeTasksCount === 1) {
+      bodyText = "У вас 1 активная задача. Начните день продуктивно!";
+    } else if (activeTasksCount <= 4) {
+      bodyText = `У вас ${activeTasksCount} активные задачи. Начните день продуктивно!`;
+    } else {
+      bodyText = `У вас ${activeTasksCount} активных задач. Начните день продуктивно!`;
+    }
 
     await Notifications.scheduleNotificationAsync({
       content: {
         title: "☀️ Доброе утро!",
-        body: "У вас есть задачи на сегодня. Начните день продуктивно!",
+        body: bodyText,
         data: { type: "morning-reminder" },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
@@ -131,14 +146,29 @@ export async function scheduleMorningReminder(hour: number, minute: number) {
 }
 
 // Запланировать вечернее напоминание
-export async function scheduleEveningReminder(hour: number, minute: number) {
+export async function scheduleEveningReminder(
+  hour: number,
+  minute: number,
+  activeTasksCount: number = 0,
+) {
   try {
     await cancelEveningReminder();
+
+    let bodyText: string;
+    if (activeTasksCount === 0) {
+      bodyText = "Отлично! Все задачи выполнены. Хорошего вечера!";
+    } else if (activeTasksCount === 1) {
+      bodyText = "Осталась 1 задача. Проверьте, всё ли готово?";
+    } else if (activeTasksCount <= 4) {
+      bodyText = `Осталось ${activeTasksCount} задачи. Проверьте, всё ли готово?`;
+    } else {
+      bodyText = `Осталось ${activeTasksCount} задач. Проверьте, всё ли готово?`;
+    }
 
     await Notifications.scheduleNotificationAsync({
       content: {
         title: "🌙 Вечерний чек-лист",
-        body: "Проверьте, все ли задачи выполнены сегодня?",
+        body: bodyText,
         data: { type: "evening-reminder" },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.DEFAULT,

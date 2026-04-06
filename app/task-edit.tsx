@@ -617,8 +617,8 @@ export default function TaskEditScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Напоминание */}
-            {formData.dueDate && (
+            {/* Напоминание (временно отключено) */}
+            {false && (
               <View style={styles.quickActionsRow}>
                 <Text style={[styles.subLabel, { color: colors.muted }]}>
                   Напоминание:
