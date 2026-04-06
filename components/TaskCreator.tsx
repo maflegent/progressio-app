@@ -79,8 +79,8 @@ const REMINDER_OPTIONS = [
 
 const QUICK_DATES = [
   { label: "Сегодня", days: 0, icon: "today" },
-  { label: "Завтра", days: 1, icon: "event" },
-  { label: "Через 3 дня", days: 3, icon: "date-range" },
+  { label: "Завтра", days: 1, icon: "calendar" },
+  { label: "Через 3 дня", days: 3, icon: "calendar-outline" },
   { label: "Через неделю", days: 7, icon: "calendar" },
   { label: "Через месяц", days: 30, icon: "calendar-outline" },
 ];
@@ -155,10 +155,11 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
 
   const [isLoading, setIsLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>("main");
-  const [customDateInput, setCustomDateInput] = useState("");
   const [newTag, setNewTag] = useState("");
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDueDatePicker, setShowDueDatePicker] = useState(false);
+  const [showDueTimePicker, setShowDueTimePicker] = useState(false);
+  const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
+  const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
   const [selectedReminderDate, setSelectedReminderDate] = useState<Date | null>(
     null,
   );
@@ -244,41 +245,30 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
     setActiveSection("main");
   };
 
-  const handleCustomDate = () => {
-    if (!customDateInput) {
-      setFormData((prev) => ({ ...prev, dueDate: undefined }));
-      setActiveSection("main");
-      return;
-    }
-
-    try {
-      const formats = [
-        customDateInput,
-        customDateInput.replace(/(\d{2})\.(\d{2})\.(\d{4})/, "$3-$2-$1"),
-        customDateInput.replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$3-$2-$1"),
-      ];
-
-      let parsedDate: Date | null = null;
-      for (const format of formats) {
-        const date = new Date(format);
-        if (!isNaN(date.getTime())) {
-          parsedDate = date;
-          break;
-        }
-      }
-
-      if (parsedDate) {
-        setFormData((prev) => ({ ...prev, dueDate: parsedDate }));
-        setActiveSection("main");
-        setCustomDateInput("");
+  // Обработчик DateTimePicker для dueDate
+  const handleDueDateChange = (event: any, selectedDate?: Date) => {
+    setShowDueDatePicker(false);
+    if (selectedDate) {
+      const newDate = new Date(selectedDate);
+      if (formData.dueDate) {
+        // Сохраняем время из предыдущей даты
+        newDate.setHours(formData.dueDate.getHours());
+        newDate.setMinutes(formData.dueDate.getMinutes());
       } else {
-        Alert.alert(
-          "Ошибка",
-          "Неверный формат даты. Используйте ГГГГ-ММ-ДД или ДД.ММ.ГГГГ",
-        );
+        newDate.setHours(18, 0, 0, 0);
       }
-    } catch (error) {
-      Alert.alert("Ошибка", "Неверный формат даты");
+      setFormData((prev) => ({ ...prev, dueDate: newDate }));
+      setShowDueTimePicker(true);
+    }
+  };
+
+  const handleDueTimeChange = (event: any, selectedTime?: Date) => {
+    setShowDueTimePicker(false);
+    if (selectedTime && formData.dueDate) {
+      const newDate = new Date(formData.dueDate);
+      newDate.setHours(selectedTime.getHours());
+      newDate.setMinutes(selectedTime.getMinutes());
+      setFormData((prev) => ({ ...prev, dueDate: newDate }));
     }
   };
 
@@ -488,6 +478,58 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
 
         {activeSection === "date" && (
           <View style={styles.expandedContent}>
+            {/* Кнопка открытия пикера даты */}
+            <TouchableOpacity
+              style={[
+                styles.datePickerButton,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => setShowDueDatePicker(true)}
+            >
+              <Ionicons name="calendar" size={20} color={colors.primary} />
+              <Text
+                style={[
+                  styles.datePickerText,
+                  { color: colors.cardForeground },
+                ]}
+              >
+                {formData.dueDate
+                  ? format(formData.dueDate, "d MMMM yyyy", { locale: ru })
+                  : "Выбрать дату"}
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={colors.muted} />
+            </TouchableOpacity>
+
+            {/* Время */}
+            {formData.dueDate && (
+              <TouchableOpacity
+                style={[
+                  styles.datePickerButton,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+                onPress={() => setShowDueTimePicker(true)}
+              >
+                <Ionicons name="time" size={20} color={colors.primary} />
+                <Text
+                  style={[
+                    styles.datePickerText,
+                    { color: colors.cardForeground },
+                  ]}
+                >
+                  {format(formData.dueDate, "HH:mm")}
+                </Text>
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={colors.muted}
+                />
+              </TouchableOpacity>
+            )}
+
+            {/* Быстрые даты */}
+            <Text style={[styles.quickDatesLabel, { color: colors.muted }]}>
+              Быстро:
+            </Text>
             <View style={styles.quickDatesGrid}>
               {QUICK_DATES.map((date) => (
                 <TouchableOpacity
@@ -536,32 +578,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
               ))}
             </View>
 
-            <View style={styles.customDateRow}>
-              <TextInput
-                style={[
-                  styles.customDateInput,
-                  {
-                    backgroundColor: colors.card,
-                    color: colors.cardForeground,
-                    borderColor: colors.border,
-                  },
-                ]}
-                value={customDateInput}
-                onChangeText={setCustomDateInput}
-                placeholder="ГГГГ-ММ-ДД или ДД.ММ.ГГГГ"
-                placeholderTextColor={colors.muted}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.customDateButton,
-                  { backgroundColor: colors.primary },
-                ]}
-                onPress={handleCustomDate}
-              >
-                <Text style={{ color: "#FFFFFF", fontWeight: "600" }}>OK</Text>
-              </TouchableOpacity>
-            </View>
-
+            {/* Убрать дату */}
             {formData.dueDate && (
               <TouchableOpacity
                 style={styles.clearButton}
@@ -574,6 +591,27 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
                   Убрать дату
                 </Text>
               </TouchableOpacity>
+            )}
+
+            {/* Date Picker для dueDate */}
+            {showDueDatePicker && (
+              <DateTimePicker
+                value={formData.dueDate || new Date()}
+                mode="date"
+                display={Platform.OS === "ios" ? "inline" : "default"}
+                minimumDate={new Date()}
+                onChange={handleDueDateChange}
+              />
+            )}
+
+            {/* Time Picker для dueDate */}
+            {showDueTimePicker && (
+              <DateTimePicker
+                value={formData.dueDate || new Date()}
+                mode="time"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                onChange={handleDueTimeChange}
+              />
             )}
           </View>
         )}
@@ -645,7 +683,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
                   : colors.border,
               },
             ]}
-            onPress={() => setShowDatePicker(true)}
+            onPress={() => setShowReminderDatePicker(true)}
           >
             <Ionicons
               name="alarm"
@@ -672,15 +710,15 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
             )}
           </TouchableOpacity>
 
-          {/* Date Picker */}
-          {showDatePicker && (
+          {/* Date Picker для напоминания */}
+          {showReminderDatePicker && (
             <DateTimePicker
               value={selectedReminderDate || new Date()}
               mode="date"
               display={Platform.OS === "ios" ? "inline" : "default"}
               minimumDate={new Date()}
               onChange={(_, date) => {
-                setShowDatePicker(false);
+                setShowReminderDatePicker(false);
                 if (date) {
                   const newDate = new Date(date);
                   if (selectedReminderDate) {
@@ -691,20 +729,20 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
                     newDate.setMinutes(0);
                   }
                   setSelectedReminderDate(newDate);
-                  setShowTimePicker(true);
+                  setShowReminderTimePicker(true);
                 }
               }}
             />
           )}
 
-          {/* Time Picker */}
-          {showTimePicker && (
+          {/* Time Picker для напоминания */}
+          {showReminderTimePicker && (
             <DateTimePicker
               value={selectedReminderDate || new Date()}
               mode="time"
               display={Platform.OS === "ios" ? "spinner" : "default"}
               onChange={(_, date) => {
-                setShowTimePicker(false);
+                setShowReminderTimePicker(false);
                 if (date && selectedReminderDate) {
                   const newDate = new Date(selectedReminderDate);
                   newDate.setHours(date.getHours());
@@ -1155,6 +1193,23 @@ const styles = StyleSheet.create({
   quickDateLabel: {
     fontSize: 13,
     fontWeight: "500",
+  },
+  quickDatesLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  datePickerButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  datePickerText: {
+    fontSize: 15,
+    fontWeight: "500",
+    flex: 1,
   },
   customDateRow: {
     flexDirection: "row",

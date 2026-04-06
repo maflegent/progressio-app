@@ -344,7 +344,7 @@ export default function SettingsScreen() {
             colors={colors}
           />
           <SettingItem
-            icon="upload"
+            icon="download"
             title="Импорт данных"
             subtitle="Загрузить задачи из файла"
             onPress={() => {

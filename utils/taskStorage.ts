@@ -110,34 +110,8 @@ export const taskStorage = {
         updatedAt: now,
       };
 
-      // Если это повторяющаяся задача, создаем первую следующую задачу
-      if (newTask.isRecurring && newTask.recurringPattern) {
-        try {
-          const rule = JSON.parse(newTask.recurringPattern);
-          const nextTasks = generateRecurringTasks(newTask, rule, now);
-
-          if (nextTasks.length > 0) {
-            // Генерируем уникальный ID для следующей задачи
-            let nextId: string;
-            do {
-              nextId = generateId();
-            } while (
-              tasks.some((task) => task.id === nextId) ||
-              nextId === newId
-            );
-
-            nextTasks[0].id = nextId;
-            tasks.push(newTask, nextTasks[0]);
-          } else {
-            tasks.push(newTask);
-          }
-        } catch (error) {
-          console.error("Error creating recurring task:", error);
-          tasks.push(newTask);
-        }
-      } else {
-        tasks.push(newTask);
-      }
+      // Просто добавляем задачу - следующая создастся при выполнении
+      tasks.push(newTask);
 
       await this.saveTasks(tasks);
       return newTask.id;
