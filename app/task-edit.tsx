@@ -1,423 +1,181 @@
-// app/task-edit.tsx - обновленная версия с кнопками быстрого доступа
-import { RecurringPicker } from "@/components/RecurringPicker";
+// app/task-edit.tsx - улучшенный редактор задач
 import { Colors } from "@/constants/Colors";
+import { useAppTheme } from "@/contexts/SettingsContext";
 import { useTags } from "@/contexts/TagsContext";
 import { useTasks } from "@/contexts/TaskContext";
-import { EisenhowerMatrix, TaskPriority } from "@/types";
-import {
-  cancelTaskReminder,
-  scheduleTaskReminder,
-} from "@/utils/notifications";
-import { RecurringRule } from "@/utils/recurringTasks";
+import { TaskPriority } from "@/types";
+import { scheduleTaskReminder, cancelTaskReminder } from "@/utils/notifications";
+import { RecurringPattern, RecurringRule } from "@/utils/recurringTasks";
 import { taskStorage } from "@/utils/taskStorage";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { format, isToday, isTomorrow } from "date-fns";
+import { ru } from "date-fns/locale";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  useColorScheme,
   View,
 } from "react-native";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const PRIORITIES: { type: TaskPriority; label: string; icon: string; color: string }[] = [
+  { type: "urgent", label: "Срочно", icon: "alert-circle", color: "#EF4444" },
+  { type: "high", label: "Высокий", icon: "trending-up", color: "#F59E0B" },
+  { type: "medium", label: "Средний", icon: "remove", color: "#3B82F6" },
+  { type: "low", label: "Низкий", icon: "trending-down", color: "#10B981" },
+];
+
+const recurringPatterns = ["daily", "weekly", "monthly", "weekdays"] as const;
+
+const QUICK_DATES = [
+  { label: "Сегодня", days: 0 },
+  { label: "Завтра", days: 1 },
+  { label: "Через 3 дня", days: 3 },
+  { label: "На неделю", days: 7 },
+];
 
 export default function TaskEditScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? "light"];
-  const { updateTask, getTask, refreshTasks } = useTasks();
+  const colorScheme = useAppTheme();
+  const colors = Colors[colorScheme];
+  const { updateTask, getTask, refreshTasks, addTask } = useTasks();
   const { customTags, addCustomTag } = useTags();
 
   const isEditing = !!id;
 
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    priority: "medium" as TaskPriority,
-    eisenhower: undefined as EisenhowerMatrix | undefined,
-    tags: [] as string[],
-    currentTag: "",
-    recurringRule: null as RecurringRule | null,
-    dueDate: undefined as Date | undefined,
-    reminderMinutesBefore: 15 as number | null, // null = без напоминания
-  });
-
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>("medium");
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState("");
+  const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  const [recurringRule, setRecurringRule] = useState<RecurringRule | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showQuickActions, setShowQuickActions] = useState(false);
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [tempDate, setTempDate] = useState<string>("");
 
-  // Загружаем задачу при редактировании
   useEffect(() => {
     if (isEditing && id) {
       const task = getTask(id);
       if (task) {
-        let recurringRule = null;
+        setTitle(task.title);
+        setDescription(task.description || "");
+        setPriority(task.priority);
+        setTags(task.tags || []);
+        
+        if (task.dueDate) {
+          setDueDate(new Date(task.dueDate));
+        }
+        
         if (task.recurringPattern) {
           try {
-            recurringRule = JSON.parse(task.recurringPattern);
-          } catch (error) {
-            console.error("Error parsing recurring pattern:", error);
-          }
+            setRecurringRule(JSON.parse(task.recurringPattern));
+          } catch {}
         }
-
-        // Вычисляем время напоминания (с защитой от некорректных типов)
-        let reminderMinutesBefore: number | null = 15; // по умолчанию
-        const dueDateValue =
-          task.dueDate instanceof Date
-            ? task.dueDate
-            : task.dueDate
-              ? new Date(task.dueDate)
-              : undefined;
-        const reminderDateValue =
-          task.reminderDate instanceof Date
-            ? task.reminderDate
-            : task.reminderDate
-              ? new Date(task.reminderDate)
-              : undefined;
-
-        if (reminderDateValue && dueDateValue) {
-          const diffMs = dueDateValue.getTime() - reminderDateValue.getTime();
-          const diffMinutes = Math.floor(diffMs / (60 * 1000));
-          reminderMinutesBefore = diffMinutes;
-        } else if (!reminderDateValue) {
-          reminderMinutesBefore = null;
-        }
-
-        setFormData({
-          title: task.title,
-          description: task.description || "",
-          priority: task.priority,
-          eisenhower: task.eisenhower,
-          tags: task.tags || [],
-          currentTag: "",
-          recurringRule,
-          dueDate: dueDateValue,
-          reminderMinutesBefore,
-        });
       }
     }
-  }, [id, isEditing, getTask]);
+  }, [id]);
 
-  const handleSubmit = async () => {
-    if (!formData.title.trim()) {
-      Alert.alert("Ошибка", "Название задачи обязательно");
+  const handleSave = async () => {
+    if (!title.trim()) {
+      Alert.alert("Ошибка", "Введите название задачи");
       return;
     }
 
     setIsLoading(true);
     try {
-      // Ограничиваем описание до 300 символов
-      const description = formData.description.trim();
-      const truncatedDescription =
-        description.length > 300
-          ? description.substring(0, 300) + "..."
-          : description || undefined;
-
-      // Рассчитываем дату напоминания (с защитой от некорректных типов)
-      let reminderDate: Date | undefined;
-      const dueDateValue =
-        formData.dueDate instanceof Date
-          ? formData.dueDate
-          : formData.dueDate
-            ? new Date(formData.dueDate)
-            : undefined;
-
-      if (dueDateValue && formData.reminderMinutesBefore) {
-        reminderDate = new Date(
-          dueDateValue.getTime() - formData.reminderMinutesBefore * 60 * 1000,
-        );
-      }
-
       const taskData = {
-        title: formData.title.trim(),
-        description: truncatedDescription,
-        priority: formData.priority,
-        eisenhower: formData.eisenhower,
-        tags: formData.tags,
+        title: title.trim(),
+        description: description.trim().substring(0, 300),
+        priority,
+        tags,
+        folder: "other",
         isCompleted: false,
-        isRecurring: !!formData.recurringRule,
-        recurringPattern: formData.recurringRule
-          ? JSON.stringify(formData.recurringRule)
-          : undefined,
-        dueDate: formData.dueDate,
-        reminderDate,
+        dueDate,
+        isRecurring: !!recurringRule,
+        recurringPattern: recurringRule ? JSON.stringify(recurringRule) : undefined,
       };
 
-      let taskId: string;
       if (isEditing && id) {
-        // Отменяем старое напоминание
         await cancelTaskReminder(id);
         await updateTask(id, taskData);
-        taskId = id;
-        Alert.alert("Успех", "Задача обновлена");
-      } else {
-        taskId = await taskStorage.createTask(taskData);
-        await refreshTasks();
-        Alert.alert("Успех", "Задача создана");
-      }
-
-      // Планируем новое напоминание
-      if (dueDateValue && formData.reminderMinutesBefore && reminderDate) {
-        try {
-          const identifier = await scheduleTaskReminder(
-            taskId,
-            formData.title,
-            dueDateValue,
-            formData.reminderMinutesBefore,
-          );
-          if (!identifier) {
-            console.warn(
-              "Напоминание не запланировано (может быть ограничение Expo Go)",
-            );
-          }
-        } catch (error) {
-          console.warn(
-            "Ошибка планирования напоминания (может быть ограничение Expo Go):",
-            error,
-          );
+        
+        if (dueDate) {
+          await scheduleTaskReminder(id, title, dueDate, 15);
         }
+        
+        Alert.alert("Готово", "Задача обновлена");
+      } else {
+        await addTask(taskData);
+        Alert.alert("Готово", "Задача создана");
       }
 
       router.back();
     } catch (error) {
-      console.error("Error saving task:", error);
-      Alert.alert("Ошибка", "Не удалось сохранить задачу");
+      console.error("Error saving:", error);
+      Alert.alert("Ошибка", "Не удалось сохранить");
     } finally {
       setIsLoading(false);
     }
   };
 
   const addTag = async () => {
-    const trimmedTag = formData.currentTag.trim().toLowerCase();
-    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
-      setFormData({
-        ...formData,
-        tags: [...formData.tags, trimmedTag],
-        currentTag: "",
-      });
-      // Сохраняем тег в контекст для быстрого доступа
-      try {
-        await addCustomTag(trimmedTag);
-      } catch (error) {
-        console.error("Error saving tag:", error);
-      }
-    }
-  };
-
-  const handleQuickTagSelect = async (tag: string) => {
-    if (!formData.tags.includes(tag)) {
-      setFormData({
-        ...formData,
-        tags: [...formData.tags, tag],
-      });
-      // Сохраняем тег в контекст (перемещаем в начало списка)
+    const tag = newTag.trim().toLowerCase();
+    if (tag && !tags.includes(tag)) {
+      setTags([...tags, tag]);
+      setNewTag("");
       try {
         await addCustomTag(tag);
-      } catch (error) {
-        console.error("Error saving tag:", error);
-      }
+      } catch {}
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    setFormData({
-      ...formData,
-      tags: formData.tags.filter((tag) => tag !== tagToRemove),
-    });
+    setTags(tags.filter((t) => t !== tagToRemove));
   };
 
-  const handleRecurringChange = (rule: RecurringRule | null) => {
-    setFormData({
-      ...formData,
-      recurringRule: rule,
-    });
-  };
-
-  const getPriorityColor = (priority: TaskPriority) => {
-    switch (priority) {
-      case "urgent":
-        return "#EF4444";
-      case "high":
-        return "#F59E0B";
-      case "medium":
-        return "#3B82F6";
-      case "low":
-        return "#10B981";
-      default:
-        return colors.muted;
-    }
-  };
-
-  const getEisenhowerColor = (quadrant?: EisenhowerMatrix) => {
-    switch (quadrant) {
-      case "do":
-        return "#10B981";
-      case "decide":
-        return "#3B82F6";
-      case "delegate":
-        return "#F59E0B";
-      case "delete":
-        return "#EF4444";
-      default:
-        return colors.muted;
-    }
-  };
-
-  // Быстрые действия для матрицы Эйзенхауэра
-  const quickEisenhowerActions = [
-    {
-      type: "do" as EisenhowerMatrix,
-      label: "Сделать",
-      icon: "flash",
-      color: "#10B981",
-    },
-    {
-      type: "decide" as EisenhowerMatrix,
-      label: "Решить",
-      icon: "calendar",
-      color: "#3B82F6",
-    },
-    {
-      type: "delegate" as EisenhowerMatrix,
-      label: "Делегировать",
-      icon: "people",
-      color: "#F59E0B",
-    },
-    {
-      type: "delete" as EisenhowerMatrix,
-      label: "Удалить",
-      icon: "trash",
-      color: "#EF4444",
-    },
-  ];
-
-  // Быстрые действия для приоритета
-  const quickPriorityActions = [
-    {
-      type: "urgent" as TaskPriority,
-      label: "Срочно",
-      icon: "alert-circle",
-      color: "#EF4444",
-    },
-    {
-      type: "high" as TaskPriority,
-      label: "Высокий",
-      icon: "trending-up",
-      color: "#F59E0B",
-    },
-    {
-      type: "medium" as TaskPriority,
-      label: "Средний",
-      icon: "remove",
-      color: "#3B82F6",
-    },
-    {
-      type: "low" as TaskPriority,
-      label: "Низкий",
-      icon: "trending-down",
-      color: "#10B981",
-    },
-  ];
-
-  // Быстрые даты
-  const quickDates = [
-    { label: "Сегодня", days: 0 },
-    { label: "Завтра", days: 1 },
-    { label: "Через 3 дня", days: 3 },
-    { label: "Через неделю", days: 7 },
-  ];
-
-  const handleQuickDateSelect = (days: number) => {
+  const setQuickDate = (days: number) => {
     const date = new Date();
     date.setDate(date.getDate() + days);
-    date.setHours(18, 0, 0, 0); // На 18:00
-    setFormData({ ...formData, dueDate: date });
-    setShowDatePicker(false);
+    date.setHours(18, 0, 0, 0);
+    setDueDate(date);
   };
 
-  const handleDateInput = () => {
-    if (tempDate) {
-      try {
-        // Пробуем разные форматы дат
-        const formats = [
-          tempDate, // Как есть
-          tempDate.replace(/(\d{2})\.(\d{2})\.(\d{4})/, "$3-$2-$1"), // ДД.ММ.ГГГГ → ГГГГ-ММ-ДД
-          tempDate.replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$3-$2-$1"), // ДД/ММ/ГГГГ → ГГГГ-ММ-ДД
-        ];
-
-        let parsedDate: Date | null = null;
-        for (const format of formats) {
-          const date = new Date(format);
-          if (!isNaN(date.getTime())) {
-            parsedDate = date;
-            break;
-          }
-        }
-
-        if (parsedDate) {
-          setFormData({ ...formData, dueDate: parsedDate });
-          setShowDatePicker(false);
-          setTempDate("");
-        } else {
-          Alert.alert(
-            "Ошибка",
-            "Неверный формат даты. Используйте ГГГГ-ММ-ДД или ДД.ММ.ГГГГ",
-          );
-        }
-      } catch (error) {
-        Alert.alert("Ошибка", "Неверный формат даты");
-      }
-    } else {
-      setFormData({ ...formData, dueDate: undefined });
-      setShowDatePicker(false);
-    }
+  const getRecurringLabel = () => {
+    if (!recurringRule) return null;
+    const labels: Record<string, string> = {
+      daily: "Ежедневно",
+      weekly: "Еженедельно",
+      monthly: "Ежемесячно",
+      weekdays: "По будням",
+      weekends: "По выходным",
+    };
+    return labels[recurringRule.pattern] || "Повторяется";
   };
 
-  const formatDate = (date?: Date | string) => {
-    if (!date) return "Не указана";
-
-    // Конвертируем в Date если это строка
-    const dateObj = date instanceof Date ? date : new Date(date);
-    if (isNaN(dateObj.getTime())) return "Не указана";
-
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (dateObj.toDateString() === today.toDateString()) {
-      return "Сегодня";
-    } else if (dateObj.toDateString() === tomorrow.toDateString()) {
-      return "Завтра";
-    } else {
-      return dateObj.toLocaleDateString("ru-RU", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
-    }
-  };
-
-  const clearDueDate = () => {
-    setFormData({ ...formData, dueDate: undefined });
+  const formatDate = (date: Date) => {
+    if (isToday(date)) return "Сегодня";
+    if (isTomorrow(date)) return "Завтра";
+    return format(date, "d MMM", { locale: ru });
   };
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: isEditing ? "Редактировать задачу" : "Новая задача",
+          title: isEditing ? "Редактировать" : "Новая задача",
           headerRight: () => (
-            <TouchableOpacity onPress={handleSubmit} disabled={isLoading}>
-              <Text style={{ color: colors.primary, fontSize: 16 }}>
-                {isLoading ? "Сохранение..." : "Сохранить"}
+            <TouchableOpacity onPress={handleSave} disabled={isLoading}>
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>
+                {isLoading ? "..." : "Сохранить"}
               </Text>
             </TouchableOpacity>
           ),
@@ -428,673 +186,232 @@ export default function TaskEditScreen() {
         style={[styles.container, { backgroundColor: colors.background }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <ScrollView contentContainerStyle={styles.content}>
-          {/* Заголовок задачи */}
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Название задачи *
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: colors.card,
-                  color: colors.cardForeground,
-                  borderColor: colors.border,
-                },
-              ]}
-              value={formData.title}
-              onChangeText={(text) => setFormData({ ...formData, title: text })}
-              placeholder="Что нужно сделать?"
-              placeholderTextColor={colors.muted}
-              autoFocus={!isEditing}
-            />
-          </View>
-
-          {/* Быстрые действия - кнопки для приоритета и матрицы */}
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Быстрые настройки
-            </Text>
-
-            {/* Кнопка для быстрого выбора приоритета */}
-            <View style={styles.quickActionsRow}>
-              <Text style={[styles.subLabel, { color: colors.muted }]}>
-                Приоритет:
-              </Text>
-              <View style={styles.quickActions}>
-                {quickPriorityActions.map((action) => (
-                  <TouchableOpacity
-                    key={action.type}
-                    style={[
-                      styles.quickActionButton,
-                      {
-                        backgroundColor:
-                          formData.priority === action.type
-                            ? action.color
-                            : colors.card,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                    onPress={() =>
-                      setFormData({ ...formData, priority: action.type })
-                    }
-                  >
-                    <Ionicons
-                      name={action.icon as any}
-                      size={16}
-                      color={
-                        formData.priority === action.type
-                          ? "#FFFFFF"
-                          : action.color
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.quickActionText,
-                        {
-                          color:
-                            formData.priority === action.type
-                              ? "#FFFFFF"
-                              : colors.cardForeground,
-                        },
-                      ]}
-                    >
-                      {action.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Кнопка для матрицы Эйзенхауэра */}
-            <View style={styles.quickActionsRow}>
-              <Text style={[styles.subLabel, { color: colors.muted }]}>
-                Матрица Эйзенхауэра:
-              </Text>
-              <View style={styles.quickActions}>
-                {quickEisenhowerActions.map((action) => (
-                  <TouchableOpacity
-                    key={action.type}
-                    style={[
-                      styles.quickActionButton,
-                      {
-                        backgroundColor:
-                          formData.eisenhower === action.type
-                            ? action.color
-                            : colors.card,
-                        borderColor: colors.border,
-                      },
-                    ]}
-                    onPress={() =>
-                      setFormData({
-                        ...formData,
-                        eisenhower:
-                          formData.eisenhower === action.type
-                            ? undefined
-                            : action.type,
-                      })
-                    }
-                  >
-                    <Ionicons
-                      name={action.icon as any}
-                      size={16}
-                      color={
-                        formData.eisenhower === action.type
-                          ? "#FFFFFF"
-                          : action.color
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.quickActionText,
-                        {
-                          color:
-                            formData.eisenhower === action.type
-                              ? "#FFFFFF"
-                              : colors.cardForeground,
-                        },
-                      ]}
-                    >
-                      {action.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Кнопка для даты выполнения */}
-            <View style={styles.quickActionsRow}>
-              <Text style={[styles.subLabel, { color: colors.muted }]}>
-                Дата выполнения:
-              </Text>
-              <TouchableOpacity
-                style={[
-                  styles.dateButton,
-                  {
-                    backgroundColor: formData.dueDate
-                      ? getPriorityColor(formData.priority) + "20"
-                      : colors.card,
-                    borderColor: colors.border,
-                  },
-                ]}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Ionicons
-                  name="calendar"
-                  size={16}
-                  color={
-                    formData.dueDate
-                      ? getPriorityColor(formData.priority)
-                      : colors.muted
-                  }
-                />
-                <Text
-                  style={[
-                    styles.dateButtonText,
-                    {
-                      color: formData.dueDate
-                        ? getPriorityColor(formData.priority)
-                        : colors.muted,
-                    },
-                  ]}
-                >
-                  {formatDate(formData.dueDate)}
-                </Text>
-                {formData.dueDate && (
-                  <TouchableOpacity
-                    style={styles.clearDateButton}
-                    onPress={clearDueDate}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons
-                      name="close-circle"
-                      size={16}
-                      color={colors.muted}
-                    />
-                  </TouchableOpacity>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {/* Напоминание (временно отключено) */}
-            {false && (
-              <View style={styles.quickActionsRow}>
-                <Text style={[styles.subLabel, { color: colors.muted }]}>
-                  Напоминание:
-                </Text>
-                <View style={styles.quickActions}>
-                  {[
-                    { value: null, label: "Без" },
-                    { value: 15, label: "15 мин" },
-                    { value: 60, label: "1 час" },
-                    { value: 1440, label: "1 день" },
-                    { value: 10080, label: "1 неделя" },
-                  ].map((option) => (
-                    <TouchableOpacity
-                      key={option.label}
-                      style={[
-                        styles.reminderChip,
-                        {
-                          backgroundColor:
-                            formData.reminderMinutesBefore === option.value
-                              ? colors.primary
-                              : colors.card,
-                          borderColor: colors.border,
-                        },
-                      ]}
-                      onPress={() =>
-                        setFormData({
-                          ...formData,
-                          reminderMinutesBefore: option.value,
-                        })
-                      }
-                    >
-                      <Text
-                        style={[
-                          styles.reminderChipText,
-                          {
-                            color:
-                              formData.reminderMinutesBefore === option.value
-                                ? colors.primaryForeground
-                                : colors.cardForeground,
-                          },
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* Описание задачи */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.label, { color: colors.foreground }]}>
-                Описание (необязательно)
-              </Text>
-              <Text style={[styles.charCount, { color: colors.muted }]}>
-                {formData.description.length}/300
-              </Text>
-            </View>
-            <TextInput
-              style={[
-                styles.textArea,
-                {
-                  backgroundColor: colors.card,
-                  color: colors.cardForeground,
-                  borderColor:
-                    formData.description.length > 300
-                      ? "#EF4444"
-                      : colors.border,
-                },
-              ]}
-              value={formData.description}
-              onChangeText={(text) =>
-                setFormData({
-                  ...formData,
-                  description: text.substring(0, 300),
-                })
-              }
-              placeholder="Дополнительные детали, комментарии, ссылки..."
-              placeholderTextColor={colors.muted}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              maxLength={300}
-            />
-            {formData.description.length > 280 && (
-              <Text style={[styles.charWarning, { color: "#F59E0B" }]}>
-                {formData.description.length > 300
-                  ? "Превышен лимит символов"
-                  : `Осталось ${300 - formData.description.length} символов`}
-              </Text>
-            )}
-          </View>
-
-          {/* Повторение задачи */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={[styles.label, { color: colors.foreground }]}>
-                Повторение задачи
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowQuickActions(!showQuickActions)}
-              >
-                <Ionicons
-                  name={showQuickActions ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.primary}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <RecurringPicker
-              value={
-                formData.recurringRule
-                  ? JSON.stringify(formData.recurringRule)
-                  : undefined
-              }
-              onChange={handleRecurringChange}
-            />
-
-            {showQuickActions && (
-              <View style={styles.quickRecurringActions}>
-                <Text style={[styles.hint, { color: colors.muted }]}>
-                  Быстрые шаблоны:
-                </Text>
-                <View style={styles.recurringChips}>
-                  <TouchableOpacity
-                    style={[
-                      styles.recurringChip,
-                      { backgroundColor: colors.card },
-                    ]}
-                    onPress={() => handleRecurringChange({ pattern: "daily" })}
-                  >
-                    <Ionicons name="repeat" size={14} color={colors.primary} />
-                    <Text
-                      style={[
-                        styles.recurringChipText,
-                        { color: colors.cardForeground },
-                      ]}
-                    >
-                      Ежедневно
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.recurringChip,
-                      { backgroundColor: colors.card },
-                    ]}
-                    onPress={() => handleRecurringChange({ pattern: "weekly" })}
-                  >
-                    <Ionicons
-                      name="calendar"
-                      size={14}
-                      color={colors.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.recurringChipText,
-                        { color: colors.cardForeground },
-                      ]}
-                    >
-                      Еженедельно
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.recurringChip,
-                      { backgroundColor: colors.card },
-                    ]}
-                    onPress={() =>
-                      handleRecurringChange({ pattern: "weekdays" })
-                    }
-                  >
-                    <Ionicons
-                      name="business"
-                      size={14}
-                      color={colors.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.recurringChipText,
-                        { color: colors.cardForeground },
-                      ]}
-                    >
-                      По будням
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.recurringChip,
-                      { backgroundColor: "#EF444420" },
-                    ]}
-                    onPress={() => handleRecurringChange(null)}
-                  >
-                    <Ionicons name="close-circle" size={14} color="#EF4444" />
-                    <Text
-                      style={[styles.recurringChipText, { color: "#EF4444" }]}
-                    >
-                      Без повторения
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* Теги */}
-          <View style={styles.section}>
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Теги
-            </Text>
-            <View style={styles.tagInputContainer}>
+        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+          <View style={styles.content}>
+            {/* Название */}
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.muted }]}>Название *</Text>
               <TextInput
                 style={[
-                  styles.tagInput,
-                  {
-                    backgroundColor: colors.card,
-                    color: colors.cardForeground,
-                    borderColor: colors.border,
-                  },
+                  styles.titleInput,
+                  { backgroundColor: colors.card, color: colors.foreground },
                 ]}
-                value={formData.currentTag}
-                onChangeText={(text) =>
-                  setFormData({ ...formData, currentTag: text })
-                }
-                placeholder="Добавить тег..."
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Что нужно сделать?"
                 placeholderTextColor={colors.muted}
-                onSubmitEditing={addTag}
+                autoFocus={!isEditing}
               />
-              <TouchableOpacity
-                style={[
-                  styles.addTagButton,
-                  { backgroundColor: colors.primary },
-                ]}
-                onPress={addTag}
-              >
-                <Text style={{ color: colors.primaryForeground }}>+</Text>
-              </TouchableOpacity>
             </View>
 
-            {/* Список тегов */}
-            {formData.tags.length > 0 && (
-              <View style={styles.tagsContainer}>
-                {formData.tags.map((tag) => (
+            {/* Приоритет */}
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.muted }]}>Приоритет</Text>
+              <View style={styles.priorityRow}>
+                {PRIORITIES.map((p) => (
                   <TouchableOpacity
-                    key={tag}
+                    key={p.type}
                     style={[
-                      styles.tag,
-                      { backgroundColor: colors.primary + "20" },
+                      styles.priorityBtn,
+                      {
+                        backgroundColor: priority === p.type ? p.color : colors.card,
+                        borderColor: priority === p.type ? p.color : colors.border,
+                      },
                     ]}
-                    onPress={() => removeTag(tag)}
+                    onPress={() => setPriority(p.type)}
                   >
-                    <Text style={[styles.tagText, { color: colors.primary }]}>
-                      {tag} ×
+                    <Ionicons
+                      name={p.icon as any}
+                      size={16}
+                      color={priority === p.type ? "#FFF" : p.color}
+                    />
+                    <Text
+                      style={[
+                        styles.priorityLabel,
+                        { color: priority === p.type ? "#FFF" : colors.muted },
+                      ]}
+                    >
+                      {p.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
-            )}
+            </View>
 
-            {/* Быстрые теги */}
-            <View style={styles.quickTags}>
-              <Text style={[styles.hint, { color: colors.muted }]}>
-                Популярные теги:
-              </Text>
-              <View style={styles.quickTagsRow}>
-                {customTags.slice(0, 8).map((tag) => (
+            {/* Срок */}
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.muted }]}>Срок</Text>
+              <View style={styles.dateRow}>
+                {QUICK_DATES.map((qd) => (
                   <TouchableOpacity
-                    key={tag}
+                    key={qd.label}
                     style={[
-                      styles.quickTag,
-                      { backgroundColor: colors.card },
-                      formData.tags.includes(tag) && {
-                        backgroundColor: colors.primary,
-                        borderColor: colors.primary,
+                      styles.dateBtn,
+                      {
+                        backgroundColor: dueDate && 
+                          Math.floor((dueDate.getTime() - new Date().getTime()) / (1000*60*60*24)) === qd.days
+                          ? colors.primary : colors.card,
                       },
                     ]}
-                    onPress={() => handleQuickTagSelect(tag)}
+                    onPress={() => setQuickDate(qd.days)}
                   >
                     <Text
                       style={[
-                        styles.quickTagText,
+                        styles.dateBtnText,
                         {
-                          color: formData.tags.includes(tag)
-                            ? colors.primaryForeground
-                            : colors.cardForeground,
+                          color: dueDate && 
+                            Math.floor((dueDate.getTime() - new Date().getTime()) / (1000*60*60*24)) === qd.days
+                            ? "#FFF" : colors.foreground,
                         },
                       ]}
                     >
-                      {tag}
+                      {qd.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[styles.dateBtn, { backgroundColor: colors.card }]}
+                  onPress={() => {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    setDueDate(undefined);
+                  }}
+                >
+                  <Text style={{ color: colors.muted, fontSize: 12 }}>Очистить</Text>
+                </TouchableOpacity>
+              </View>
+              {dueDate && (
+                <View style={[styles.selectedDate, { backgroundColor: colors.primary + "15" }]}>
+                  <Ionicons name="calendar" size={16} color={colors.primary} />
+                  <Text style={[styles.selectedDateText, { color: colors.primary }]}>
+                    {formatDate(dueDate)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Повторение */}
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.muted }]}>Повторение</Text>
+              <View style={styles.recurringRow}>
+                {["daily", "weekly", "monthly", "weekdays"].map((pattern) => (
+                  <TouchableOpacity
+                    key={pattern}
+                    style={[
+                      styles.recurringBtn,
+                      {
+                        backgroundColor: recurringRule?.pattern === pattern 
+                          ? "#8B5CF6" : colors.card,
+                      },
+                    ]}
+                    onPress={() => setRecurringRule(
+                      recurringRule?.pattern === pattern ? null : { pattern: pattern as RecurringPattern }
+                    )}
+                  >
+                    <Text style={{ color: recurringRule?.pattern === pattern ? "#FFF" : colors.muted, fontSize: 12 }}>
+                      {pattern === "daily" && "Ежедневно"}
+                      {pattern === "weekly" && "Еженедельно"}
+                      {pattern === "monthly" && "Ежемесячно"}
+                      {pattern === "weekdays" && "По будням"}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
+            </View>
+
+            {/* Теги */}
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.muted }]}>Теги</Text>
+              <View style={styles.tagsRow}>
+                {tags.map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={[styles.tag, { backgroundColor: colors.primary + "20" }]}
+                    onPress={() => removeTag(tag)}
+                  >
+                    <Text style={{ color: colors.primary }}>#{tag}</Text>
+                    <Ionicons name="close" size={12} color={colors.primary} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={styles.tagInputRow}>
+                <TextInput
+                  style={[
+                    styles.tagInput,
+                    { backgroundColor: colors.card, color: colors.foreground },
+                  ]}
+                  value={newTag}
+                  onChangeText={setNewTag}
+                  placeholder="Добавить тег..."
+                  placeholderTextColor={colors.muted}
+                  onSubmitEditing={addTag}
+                />
+                <TouchableOpacity style={[styles.addTagBtn, { backgroundColor: colors.primary }]} onPress={addTag}>
+                  <Ionicons name="add" size={20} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+              {customTags.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.suggestedTags}>
+                  {customTags.slice(0, 8).filter(t => !tags.includes(t)).map((tag) => (
+                    <TouchableOpacity
+                      key={tag}
+                      style={[styles.suggestedTag, { borderColor: colors.border }]}
+                      onPress={() => {
+                        setTags([...tags, tag]);
+                        addCustomTag(tag);
+                      }}
+                    >
+                      <Text style={{ color: colors.muted }}>#{tag}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+
+            {/* Описание */}
+            <View style={styles.field}>
+              <View style={styles.fieldHeader}>
+                <Text style={[styles.label, { color: colors.muted }]}>Описание</Text>
+                <Text style={{ color: colors.muted, fontSize: 12 }}>
+                  {description.length}/300
+                </Text>
+              </View>
+              <TextInput
+                style={[
+                  styles.descriptionInput,
+                  { backgroundColor: colors.card, color: colors.foreground, borderColor: colors.border },
+                ]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Дополнительные детали..."
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={4}
+                maxLength={300}
+              />
             </View>
           </View>
         </ScrollView>
-
-        {/* Модальное окно выбора даты */}
-        <Modal
-          visible={showDatePicker}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowDatePicker(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View
-              style={[
-                styles.modalContent,
-                { backgroundColor: colors.background },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                  Выберите дату выполнения
-                </Text>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                  <Ionicons name="close" size={24} color={colors.foreground} />
-                </TouchableOpacity>
-              </View>
-
-              {/* Быстрый выбор даты */}
-              <Text style={[styles.modalSubtitle, { color: colors.muted }]}>
-                Быстрые варианты:
-              </Text>
-              <View style={styles.quickDatesGrid}>
-                {quickDates.map((date) => (
-                  <TouchableOpacity
-                    key={date.label}
-                    style={[
-                      styles.quickDateButton,
-                      { backgroundColor: colors.card },
-                    ]}
-                    onPress={() => handleQuickDateSelect(date.days)}
-                  >
-                    <Text
-                      style={[
-                        styles.quickDateText,
-                        { color: colors.cardForeground },
-                      ]}
-                    >
-                      {date.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Ручной ввод даты */}
-              <Text style={[styles.modalSubtitle, { color: colors.muted }]}>
-                Или введите дату вручную:
-              </Text>
-              <View style={styles.dateInputContainer}>
-                <TextInput
-                  style={[
-                    styles.dateInput,
-                    {
-                      backgroundColor: colors.card,
-                      color: colors.cardForeground,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  value={tempDate}
-                  onChangeText={setTempDate}
-                  placeholder="ГГГГ-ММ-ДД или ДД.ММ.ГГГГ"
-                  placeholderTextColor={colors.muted}
-                />
-                <TouchableOpacity
-                  style={[
-                    styles.dateInputButton,
-                    { backgroundColor: colors.primary },
-                  ]}
-                  onPress={handleDateInput}
-                >
-                  <Text
-                    style={[
-                      styles.dateInputButtonText,
-                      { color: colors.primaryForeground },
-                    ]}
-                  >
-                    OK
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.dateHint, { color: colors.muted }]}>
-                Примеры: 2024-12-25, 25.12.2024, 25/12/2024
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.clearDateModalButton,
-                  { borderColor: colors.border },
-                ]}
-                onPress={clearDueDate}
-              >
-                <Text
-                  style={[styles.clearDateModalText, { color: colors.muted }]}
-                >
-                  Удалить дату выполнения
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
       </KeyboardAvoidingView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 100, // Для кнопки сохранения
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  label: {
-    fontSize: 16,
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  content: { padding: 16 },
+  field: { marginBottom: 20 },
+  label: { fontSize: 13, fontWeight: "500", marginBottom: 8 },
+  fieldHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  titleInput: {
+    fontSize: 18,
     fontWeight: "600",
-    marginBottom: 8,
-  },
-  subLabel: {
-    fontSize: 14,
-    marginBottom: 8,
-    marginRight: 12,
-  },
-  input: {
-    borderWidth: 1,
+    padding: 16,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
   },
-  textArea: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    minHeight: 120,
-    textAlignVertical: "top",
-  },
-  charCount: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  charWarning: {
-    fontSize: 12,
-    fontStyle: "italic",
-    marginTop: 4,
-  },
-  quickActionsRow: {
-    marginBottom: 12,
-  },
-  quickActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4,
-  },
-  quickActionButton: {
+  priorityRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  priorityBtn: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
@@ -1103,202 +420,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
-  quickActionText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  dateButton: {
+  priorityLabel: { fontSize: 12, fontWeight: "500" },
+  dateRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  dateBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  dateBtnText: { fontSize: 13, fontWeight: "500" },
+  selectedDate: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
-  },
-  reminderChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  reminderChipText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  dateButtonText: {
-    fontSize: 15,
-    fontWeight: "500",
-    flex: 1,
-  },
-  clearDateButton: {
-    marginLeft: 8,
-  },
-  quickRecurringActions: {
-    marginTop: 12,
-  },
-  recurringChips: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
-  },
-  recurringChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    gap: 6,
-  },
-  recurringChipText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  tagInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  tagInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginRight: 8,
-  },
-  addTagButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  tagsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 12,
-  },
-  tag: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  tagText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  quickTags: {
-    marginTop: 8,
-  },
-  quickTagsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
-  },
-  quickTag: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  quickTagText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  hint: {
-    fontSize: 13,
-    fontStyle: "italic",
-    marginTop: 4,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    maxHeight: "60%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 12,
-    marginTop: 16,
-  },
-  quickDatesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  quickDateButton: {
-    flex: 1,
-    minWidth: "45%",
-    paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  quickDateText: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  dateInputContainer: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 8,
-  },
-  dateInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-  },
-  dateInputButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dateInputButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  dateHint: {
-    fontSize: 12,
-    marginTop: 8,
-    fontStyle: "italic",
-    textAlign: "center",
-  },
-  clearDateModalButton: {
-    borderWidth: 1,
-    paddingVertical: 12,
+    padding: 12,
     borderRadius: 8,
-    alignItems: "center",
-    marginTop: 20,
+    marginTop: 8,
+    gap: 8,
   },
-  clearDateModalText: {
-    fontSize: 16,
-    fontWeight: "500",
-  },
+  selectedDateText: { fontSize: 14, fontWeight: "600" },
+  recurringRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  recurringBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+  tagsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  tag: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, gap: 4 },
+  tagInputRow: { flexDirection: "row", gap: 8 },
+  tagInput: { flex: 1, padding: 12, borderRadius: 8 },
+  addTagBtn: { width: 44, height: 44, borderRadius: 8, justifyContent: "center", alignItems: "center" },
+  suggestedTags: { marginTop: 8 },
+  suggestedTag: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, marginRight: 8 },
+  descriptionInput: { minHeight: 100, padding: 12, borderRadius: 12, fontSize: 15, borderWidth: 1, textAlignVertical: "top" },
 });

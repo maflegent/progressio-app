@@ -96,7 +96,10 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   };
 
-  const getMoodStats = diaryStorage.getMoodStats;
+  const getMoodStats = async (period: 'week' | 'month' | 'year') => {
+    return diaryStorage.getMoodStats(period);
+  };
+
   const refreshEntries = loadEntries;
 
   const value = {

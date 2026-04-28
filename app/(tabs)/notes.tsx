@@ -1,4 +1,4 @@
-// app/(tabs)/notes.tsx - улучшенная версия без заглушек
+// app/(tabs)/notes.tsx - улучшенные заметки
 import { Colors } from "@/constants/Colors";
 import { GlobalStyles } from "@/constants/Styles";
 import { useAppTheme } from "@/contexts/SettingsContext";
@@ -10,6 +10,7 @@ import { ru } from "date-fns/locale";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -20,303 +21,82 @@ import {
   View,
 } from "react-native";
 
-// Компонент карточки заметки
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const FOLDER_CONFIG = [
+  { id: "work", label: "Работа", icon: "briefcase", color: "#3B82F6" },
+  { id: "personal", label: "Личное", icon: "heart", color: "#EC4899" },
+  { id: "ideas", label: "Идеи", icon: "bulb", color: "#8B5CF6" },
+  { id: "learning", label: "Учёба", icon: "school", color: "#F59E0B" },
+  { id: "other", label: "Другое", icon: "folder", color: "#6B7280" },
+];
+
+const NOTE_COLORS = [
+  "#FFFFFF",
+  "#FEF3C7",
+  "#DBEAFE",
+  "#FCE7F3",
+  "#D1FAE5",
+  "#E0E7FF",
+  "#FEE2E2",
+];
+
 const NoteCard = ({
   note,
   colors,
   onPress,
-  onTogglePin,
-  onDelete,
+  onLongPress,
 }: {
   note: Note;
   colors: any;
   onPress: () => void;
-  onTogglePin: () => void;
-  onDelete: () => void;
+  onLongPress: () => void;
 }) => {
-  const folderColors: Record<string, string> = {
-    work: "#3B82F6",
-    personal: "#10B981",
-    ideas: "#8B5CF6",
-    learning: "#F59E0B",
-  };
-
-  const folderColor = folderColors[note.folder || ""] || colors.muted;
-  const folderName = note.folder || "Без папки";
+  const folder = FOLDER_CONFIG.find((f) => f.id === note.folder) || FOLDER_CONFIG[4];
 
   return (
     <TouchableOpacity
       style={[
         styles.noteCard,
-        GlobalStyles.shadow,
         {
           backgroundColor: note.color || colors.card,
-          borderLeftWidth: 4,
-          borderLeftColor: folderColor,
         },
       ]}
       onPress={onPress}
+      onLongPress={onLongPress}
     >
-      <View style={styles.noteHeader}>
-        <View style={styles.noteInfo}>
-          <View
-            style={[styles.noteFolder, { backgroundColor: `${folderColor}15` }]}
-          >
-            <Text style={[styles.noteFolderText, { color: folderColor }]}>
-              {folderName}
-            </Text>
-          </View>
-          {note.isPinned && <Ionicons name="pin" size={16} color="#F59E0B" />}
+      {note.isPinned && (
+        <View style={styles.pinnedBadge}>
+          <Ionicons name="pin" size={12} color="#F59E0B" />
         </View>
-        <View style={styles.noteActions}>
-          <TouchableOpacity onPress={onTogglePin} style={styles.noteAction}>
-            <Ionicons
-              name={note.isPinned ? "bookmark" : "bookmark-outline"}
-              size={18}
-              color={note.isPinned ? "#F59E0B" : colors.muted}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDelete} style={styles.noteAction}>
-            <Ionicons name="trash-outline" size={18} color="#EF4444" />
-          </TouchableOpacity>
-        </View>
+      )}
+      
+      <View style={[styles.noteFolderTag, { backgroundColor: `${folder.color}20` }]}>
+        <Ionicons name={folder.icon as any} size={12} color={folder.color} />
+        <Text style={[styles.noteFolderText, { color: folder.color }]}>
+          {folder.label}
+        </Text>
       </View>
 
-      <Text style={[styles.noteTitle, { color: colors.cardForeground }]}>
-        {note.title || "Без названия"}
+      <Text style={[styles.noteTitle, { color: colors.foreground }]} numberOfLines={2}>
+        {note.title}
       </Text>
-
-      <Text
-        style={[styles.noteContent, { color: colors.muted }]}
-        numberOfLines={3}
-      >
-        {note.content || "Нет содержимого"}
-      </Text>
+      
+      {note.content && (
+        <Text style={[styles.notePreview, { color: colors.muted }]} numberOfLines={3}>
+          {note.content}
+        </Text>
+      )}
 
       <View style={styles.noteFooter}>
         <Text style={[styles.noteDate, { color: colors.muted }]}>
-          {format(note.updatedAt, "d MMM HH:mm", { locale: ru })}
+          {format(new Date(note.updatedAt), "d MMM", { locale: ru })}
         </Text>
-        {note.linkedTasks && note.linkedTasks.length > 0 && (
-          <View style={styles.linkedTasks}>
-            <Ionicons name="checkbox" size={14} color={colors.primary} />
-            <Text style={[styles.linkedTasksText, { color: colors.primary }]}>
-              {note.linkedTasks.length}
-            </Text>
-          </View>
+        {note.isPinned && (
+          <Ionicons name="pin" size={14} color="#F59E0B" />
         )}
       </View>
     </TouchableOpacity>
-  );
-};
-
-// Модальное окно создания/редактирования заметки
-const NoteModal = ({
-  visible,
-  note,
-  folders,
-  colors,
-  onClose,
-  onSave,
-  template,
-}: {
-  visible: boolean;
-  note: Note | null;
-  folders: any[];
-  colors: any;
-  onClose: () => void;
-  onSave: (note: Partial<Note>) => void;
-  template: { title: string; content: string } | null;
-}) => {
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [selectedFolder, setSelectedFolder] = useState("all");
-  const [selectedColor, setSelectedColor] = useState<string | undefined>(
-    undefined,
-  );
-
-  const noteColors = [
-    undefined, // default
-    "#FEE2E2", // red
-    "#FEF3C7", // yellow
-    "#D1FAE5", // green
-    "#DBEAFE", // blue
-    "#E9D5FF", // purple
-    "#F3E8FF", // pink
-  ];
-
-  useEffect(() => {
-    if (note) {
-      setTitle(note.title);
-      setContent(note.content);
-      setSelectedFolder(note.folder || "all");
-      setSelectedColor(note.color);
-    } else if (template) {
-      setTitle(template.title);
-      setContent(template.content);
-      setSelectedFolder("all");
-      setSelectedColor(undefined);
-    } else {
-      setTitle("");
-      setContent("");
-      setSelectedFolder("all");
-      setSelectedColor(undefined);
-    }
-  }, [note, visible, template]);
-
-  const handleSave = () => {
-    if (!title.trim()) {
-      Alert.alert("Ошибка", "Введите название заметки");
-      return;
-    }
-    onSave({
-      title: title.trim(),
-      content: content.trim(),
-      folder: selectedFolder === "all" ? undefined : selectedFolder,
-      color: selectedColor,
-    });
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View
-          style={[styles.modalContent, { backgroundColor: colors.background }]}
-        >
-          <View style={styles.modalHeader}>
-            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-              {note ? "Редактировать заметку" : "Новая заметка"}
-            </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.modalBody}>
-            <TextInput
-              style={[
-                styles.titleInput,
-                {
-                  backgroundColor: colors.card,
-                  color: colors.foreground,
-                  borderColor: colors.border,
-                },
-              ]}
-              placeholder="Название заметки"
-              placeholderTextColor={colors.muted}
-              value={title}
-              onChangeText={setTitle}
-            />
-
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Содержание
-            </Text>
-            <TextInput
-              style={[
-                styles.contentInput,
-                {
-                  backgroundColor: colors.card,
-                  color: colors.foreground,
-                  borderColor: colors.border,
-                },
-              ]}
-              placeholder="Напишите что-нибудь..."
-              placeholderTextColor={colors.muted}
-              multiline
-              numberOfLines={10}
-              value={content}
-              onChangeText={setContent}
-              textAlignVertical="top"
-            />
-
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Папка
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.modalFoldersScroll}
-            >
-              {folders.map((folder) => (
-                <TouchableOpacity
-                  key={folder.id}
-                  style={[
-                    styles.folderChip,
-                    selectedFolder === folder.id && {
-                      backgroundColor: colors.primary,
-                    },
-                  ]}
-                  onPress={() => setSelectedFolder(folder.id)}
-                >
-                  <Text
-                    style={[
-                      styles.folderChipText,
-                      selectedFolder === folder.id
-                        ? { color: colors.primaryForeground }
-                        : { color: colors.foreground },
-                    ]}
-                  >
-                    {folder.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <Text style={[styles.label, { color: colors.foreground }]}>
-              Цвет
-            </Text>
-            <View style={styles.colorPicker}>
-              {noteColors.map((color, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.colorOption,
-                    {
-                      backgroundColor: color || colors.card,
-                      borderColor:
-                        selectedColor === color
-                          ? colors.primary
-                          : "transparent",
-                      borderWidth: 2,
-                    },
-                  ]}
-                  onPress={() => setSelectedColor(color)}
-                >
-                  {selectedColor === color && (
-                    <Ionicons
-                      name="checkmark"
-                      size={20}
-                      color={colors.primary}
-                    />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-
-          <View style={styles.modalFooter}>
-            <TouchableOpacity
-              style={[styles.saveButton, { backgroundColor: colors.primary }]}
-              onPress={handleSave}
-            >
-              <Text
-                style={[
-                  styles.saveButtonText,
-                  { color: colors.primaryForeground },
-                ]}
-              >
-                {note ? "Сохранить" : "Создать"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
   );
 };
 
@@ -325,695 +105,477 @@ export default function NotesScreen() {
   const colors = Colors[colorScheme];
 
   const [notes, setNotes] = useState<Note[]>([]);
-  const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string>("all");
-  const [isLoading, setIsLoading] = useState(false);
-
   const [showModal, setShowModal] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
-  const [templateNote, setTemplateNote] = useState<{
-    title: string;
-    content: string;
-  } | null>(null);
-
-  const folders = [
-    { id: "all", name: "Все", icon: "document-text" },
-    { id: "work", name: "Работа", icon: "briefcase" },
-    { id: "personal", name: "Личное", icon: "person" },
-    { id: "ideas", name: "Идеи", icon: "bulb" },
-    { id: "learning", name: "Обучение", icon: "school" },
-  ];
-
-  const templates = [
-    {
-      title: "Встреча",
-      icon: "people",
-      content: "Дата: \nУчастники: \nПовестка:\n- \n- \n\nРешения:\n- \n- ",
-    },
-    {
-      title: "Идея",
-      icon: "bulb",
-      content:
-        "Название идеи:\n\nОписание:\n\nПреимущества:\n\nСледующие шаги:",
-    },
-    {
-      title: "Чеклист",
-      icon: "list",
-      content: "Задачи:\n- [ ] \n- [ ] \n- [ ] \n- [ ] ",
-    },
-    { title: "Код", icon: "code", content: "```language\n// Код здесь\n\n```" },
-  ];
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteFolder, setNoteFolder] = useState("other");
+  const [noteColor, setNoteColor] = useState(NOTE_COLORS[0]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadNotes();
   }, []);
 
-  useEffect(() => {
-    filterNotes();
-  }, [notes, searchQuery, selectedFolder]);
-
   const loadNotes = async () => {
     try {
       setIsLoading(true);
-      const loadedNotes = await notesStorage.loadNotes();
-      setNotes(loadedNotes);
+      const loaded = await notesStorage.loadNotes();
+      setNotes(loaded.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      }));
     } catch (error) {
-      console.error("Error loading notes:", error);
-      Alert.alert("Ошибка", "Не удалось загрузить заметки");
+      console.error("Error loading:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const filterNotes = () => {
-    let filtered = notes;
+  const filteredNotes = selectedFolder === "all"
+    ? notes
+    : notes.filter((n) => n.folder === selectedFolder);
 
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (note) =>
-          note.title.toLowerCase().includes(query) ||
-          note.content.toLowerCase().includes(query),
-      );
+  const handleSaveNote = async () => {
+    if (!noteTitle.trim()) {
+      Alert.alert("Ошибка", "Введите заголовок");
+      return;
     }
-
-    if (selectedFolder !== "all") {
-      filtered = filtered.filter((note) => note.folder === selectedFolder);
-    }
-
-    // Сортируем: закрепленные сначала, затем по дате обновления
-    filtered.sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-    });
-
-    setFilteredNotes(filtered);
-  };
-
-  const handleCreateNote = async (noteData: Partial<Note>) => {
-    try {
-      setIsLoading(true);
-      await notesStorage.addNote({
-        title: noteData.title || "",
-        content: noteData.content || "",
-        folder: noteData.folder,
-        color: noteData.color,
-        isPinned: false,
-        linkedTasks: [],
-      });
-      await loadNotes();
-      setShowModal(false);
-      setEditingNote(null);
-      setTemplateNote(null);
-      Alert.alert("Успех", "Заметка создана");
-    } catch (error) {
-      console.error("Error creating note:", error);
-      Alert.alert("Ошибка", "Не удалось создать заметку");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleUpdateNote = async (noteData: Partial<Note>) => {
-    if (!editingNote) return;
 
     try {
-      setIsLoading(true);
-      await notesStorage.updateNote(editingNote.id, noteData);
+      if (editingNote) {
+        await notesStorage.updateNote(editingNote.id, {
+          title: noteTitle.trim(),
+          content: noteContent.trim(),
+          folder: noteFolder,
+          color: noteColor,
+          isPinned: editingNote.isPinned,
+        });
+      } else {
+        await notesStorage.addNote({
+          title: noteTitle.trim(),
+          content: noteContent.trim(),
+          folder: noteFolder,
+          color: noteColor,
+          isPinned: false,
+        });
+      }
+
+      resetForm();
       await loadNotes();
-      setShowModal(false);
-      setEditingNote(null);
-      setTemplateNote(null);
-      Alert.alert("Успех", "Заметка обновлена");
+      Alert.alert("Успех", "Заметка сохранена");
     } catch (error) {
-      console.error("Error updating note:", error);
-      Alert.alert("Ошибка", "Не удалось обновить заметку");
-    } finally {
-      setIsLoading(false);
+      Alert.alert("Ошибка", "Не удалось сохранить");
     }
+  };
+
+  const handleDeleteNote = async (id: string) => {
+    Alert.alert("Удалить заметку?", "Это действие необратимо", [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Удалить",
+        style: "destructive",
+        onPress: async () => {
+          await notesStorage.deleteNote(id);
+          await loadNotes();
+        },
+      },
+    ]);
   };
 
   const handleTogglePin = async (note: Note) => {
-    try {
-      await notesStorage.togglePin(note.id);
-      await loadNotes();
-    } catch (error) {
-      console.error("Error toggling pin:", error);
-      Alert.alert("Ошибка", "Не удалось изменить закрепление");
-    }
+    await notesStorage.togglePin(note.id);
+    await loadNotes();
   };
 
-  const handleDeleteNote = (note: Note) => {
-    Alert.alert(
-      "Удалить заметку",
-      "Вы уверены, что хотите удалить эту заметку?",
-      [
-        { text: "Отмена", style: "cancel" },
-        {
-          text: "Удалить",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await notesStorage.deleteNote(note.id);
-              await loadNotes();
-              Alert.alert("Успех", "Заметка удалена");
-            } catch (error) {
-              console.error("Error deleting note:", error);
-              Alert.alert("Ошибка", "Не удалось удалить заметку");
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const handleOpenNote = (note: Note) => {
-    setEditingNote(note);
-    setShowModal(true);
-  };
-
-  const handleCreateFromTemplate = (template: any) => {
+  const openNewNote = () => {
     setEditingNote(null);
-    setTemplateNote({ title: template.title, content: template.content });
+    setNoteTitle("");
+    setNoteContent("");
+    setNoteFolder("other");
+    setNoteColor(NOTE_COLORS[0]);
     setShowModal(true);
   };
 
-  const getStats = () => {
-    const total = notes.length;
-    const pinned = notes.filter((n) => n.isPinned).length;
-    const folders: Record<string, number> = {};
-    notes.forEach((note) => {
-      if (note.folder) {
-        folders[note.folder] = (folders[note.folder] || 0) + 1;
-      }
-    });
-    return { total, pinned, folders };
+  const openEditNote = (note: Note) => {
+    setEditingNote(note);
+    setNoteTitle(note.title);
+    setNoteContent(note.content);
+    setNoteFolder(note.folder || "other");
+    setNoteColor(note.color || NOTE_COLORS[0]);
+    setShowModal(true);
   };
 
-  const stats = getStats();
+  const resetForm = () => {
+    setEditingNote(null);
+    setNoteTitle("");
+    setNoteContent("");
+    setNoteFolder("other");
+    setNoteColor(NOTE_COLORS[0]);
+    setShowModal(false);
+  };
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Заголовок */}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView showsVerticalScrollIndicator={false}>
         <View style={[styles.header, GlobalStyles.section]}>
-          <View>
-            <Text style={[GlobalStyles.title, { color: colors.foreground }]}>
-              Заметки
-            </Text>
-            <Text style={[GlobalStyles.subtitle, { color: colors.muted }]}>
-              {stats.total} заметок, {stats.pinned} закреплено
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: colors.primary }]}
-            onPress={() => {
-              setEditingNote(null);
-              setShowModal(true);
-            }}
-          >
-            <Ionicons name="add" size={24} color={colors.primaryForeground} />
-          </TouchableOpacity>
+          <Text style={[GlobalStyles.title, { color: colors.foreground }]}>Заметки</Text>
+          <Text style={[GlobalStyles.subtitle, { color: colors.muted }]}>
+            {notes.length > 0
+              ? `${notes.length} заметок${selectedFolder !== "all" ? " в папке" : ""}`
+              : "Создайте свою первую заметку"}
+          </Text>
         </View>
 
-        {/* Поиск */}
-        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-          <View
-            style={[styles.searchContainer, { backgroundColor: colors.card }]}
-          >
-            <Ionicons
-              name="search"
-              size={20}
-              color={colors.muted}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={[styles.searchInput, { color: colors.foreground }]}
-              placeholder="Поиск заметок..."
-              placeholderTextColor={colors.muted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery("")}>
-                <Ionicons name="close-circle" size={20} color={colors.muted} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Папки */}
-        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
+        <View style={[styles.folderTabs, { paddingHorizontal: 16 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {folders.map((folder) => {
-              const count =
-                folder.id === "all"
-                  ? stats.total
-                  : stats.folders[folder.id] || 0;
-
-              return (
-                <TouchableOpacity
-                  key={folder.id}
+            <TouchableOpacity
+              style={[
+                styles.folderTab,
+                {
+                  backgroundColor:
+                    selectedFolder === "all" ? colors.primary : colors.card,
+                },
+              ]}
+              onPress={() => setSelectedFolder("all")}
+            >
+              <Text
+                style={[
+                  styles.folderTabText,
+                  {
+                    color:
+                      selectedFolder === "all"
+                        ? colors.primaryForeground
+                        : colors.muted,
+                  },
+                ]}
+              >
+                Все
+              </Text>
+            </TouchableOpacity>
+            {FOLDER_CONFIG.map((folder) => (
+              <TouchableOpacity
+                key={folder.id}
+                style={[
+                  styles.folderTab,
+                  {
+                    backgroundColor:
+                      selectedFolder === folder.id ? folder.color : colors.card,
+                  },
+                ]}
+                onPress={() => setSelectedFolder(folder.id)}
+              >
+                <Ionicons
+                  name={folder.icon as any}
+                  size={14}
+                  color={
+                    selectedFolder === folder.id
+                      ? "#FFFFFF"
+                      : colors.muted
+                  }
+                />
+                <Text
                   style={[
-                    styles.folderCard,
-                    GlobalStyles.shadow,
+                    styles.folderTabText,
                     {
-                      backgroundColor:
+                      color:
                         selectedFolder === folder.id
-                          ? colors.primary
-                          : colors.card,
-                      borderColor:
-                        selectedFolder === folder.id
-                          ? colors.primary
-                          : colors.border,
+                          ? "#FFFFFF"
+                          : colors.muted,
                     },
                   ]}
-                  onPress={() => setSelectedFolder(folder.id)}
                 >
-                  <View
-                    style={[
-                      styles.folderIcon,
-                      {
-                        backgroundColor:
-                          selectedFolder === folder.id
-                            ? colors.primaryForeground
-                            : `${colors.primary}15`,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={folder.icon as any}
-                      size={24}
-                      color={
-                        selectedFolder === folder.id
-                          ? colors.primary
-                          : colors.primary
-                      }
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.folderName,
-                      {
-                        color:
-                          selectedFolder === folder.id
-                            ? colors.primaryForeground
-                            : colors.foreground,
-                      },
-                    ]}
-                  >
-                    {folder.name}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.folderCount,
-                      {
-                        color:
-                          selectedFolder === folder.id
-                            ? colors.primaryForeground
-                            : colors.muted,
-                      },
-                    ]}
-                  >
-                    {count}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                  {folder.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </ScrollView>
         </View>
 
-        {/* Шаблоны */}
-        {searchQuery.length === 0 && selectedFolder === "all" && (
-          <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-              Быстрые шаблоны
-            </Text>
-            <View style={styles.templatesGrid}>
-              {templates.map((template, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.templateCard,
-                    GlobalStyles.shadow,
-                    { backgroundColor: colors.card },
-                  ]}
-                  onPress={() => handleCreateFromTemplate(template)}
-                >
-                  <View
-                    style={[
-                      styles.templateIcon,
-                      { backgroundColor: `${colors.primary}15` },
-                    ]}
-                  >
-                    <Ionicons
-                      name={template.icon as any}
-                      size={24}
-                      color={colors.primary}
-                    />
-                  </View>
-                  <Text
-                    style={[styles.templateTitle, { color: colors.foreground }]}
-                  >
-                    {template.title}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+        <View style={[styles.notesGrid, { paddingHorizontal: 16 }]}>
+          {filteredNotes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="document-text-outline" size={48} color={colors.muted} />
+              <Text style={[styles.emptyText, { color: colors.muted }]}>
+                {selectedFolder === "all"
+                  ? "Нет заметок"
+                  : "В этой папке пусто"}
+              </Text>
             </View>
-          </View>
-        )}
-
-        {/* Заметки */}
-        <View
-          style={[
-            GlobalStyles.section,
-            { paddingHorizontal: 16, paddingBottom: 32 },
-          ]}
-        >
-          {filteredNotes.length > 0 ? (
+          ) : (
             filteredNotes.map((note) => (
               <NoteCard
                 key={note.id}
                 note={note}
                 colors={colors}
-                onPress={() => handleOpenNote(note)}
-                onTogglePin={() => handleTogglePin(note)}
-                onDelete={() => handleDeleteNote(note)}
+                onPress={() => openEditNote(note)}
+                onLongPress={() => {
+                  Alert.alert(note.title, "Выберите действие", [
+                    {
+                      text: note.isPinned ? "Открепить" : "Закрепить",
+                      onPress: () => handleTogglePin(note),
+                    },
+                    {
+                      text: "Удалить",
+                      style: "destructive",
+                      onPress: () => handleDeleteNote(note.id),
+                    },
+                    { text: "Отмена", style: "cancel" },
+                  ]);
+                }}
               />
             ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="document-text-outline"
-                size={64}
-                color={colors.muted}
-              />
-              <Text style={[styles.emptyStateText, { color: colors.muted }]}>
-                {searchQuery ? "Ничего не найдено" : "Заметок пока нет"}
-              </Text>
-              <Text style={[styles.emptyStateSubtext, { color: colors.muted }]}>
-                {searchQuery
-                  ? "Попробуйте изменить параметры поиска"
-                  : "Создайте первую заметку, нажав на +"}
-              </Text>
-            </View>
           )}
         </View>
 
-        {/* Модальное окно заметки */}
-        <NoteModal
-          visible={showModal}
-          note={editingNote}
-          folders={folders}
-          colors={colors}
-          onClose={() => {
-            setShowModal(false);
-            setEditingNote(null);
-            setTemplateNote(null);
-          }}
-          onSave={editingNote ? handleUpdateNote : handleCreateNote}
-          template={templateNote}
-        />
+        <View style={{ height: 100 }} />
       </ScrollView>
+
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: colors.primary }]}
+        onPress={openNewNote}
+      >
+        <Ionicons name="add" size={28} color={colors.primaryForeground} />
+      </TouchableOpacity>
+
+      <Modal
+        visible={showModal}
+        animationType="slide"
+        onRequestClose={resetForm}
+      >
+        <View style={[styles.modal, { backgroundColor: colors.background }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={resetForm}>
+              <Text style={{ color: colors.muted }}>Отмена</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              {editingNote ? "Редактировать" : "Новая заметка"}
+            </Text>
+            <TouchableOpacity onPress={handleSaveNote}>
+              <Text style={{ color: colors.primary, fontWeight: "600" }}>Сохранить</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <TextInput
+              style={[
+                styles.titleInput,
+                { color: colors.foreground },
+              ]}
+              value={noteTitle}
+              onChangeText={setNoteTitle}
+              placeholder="Заголовок"
+              placeholderTextColor={colors.muted}
+            />
+
+            <View style={styles.folderSelector}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {FOLDER_CONFIG.map((folder) => (
+                  <TouchableOpacity
+                    key={folder.id}
+                    style={[
+                      styles.folderOption,
+                      {
+                        backgroundColor:
+                          noteFolder === folder.id
+                            ? folder.color
+                            : colors.card,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    onPress={() => setNoteFolder(folder.id)}
+                  >
+                    <Ionicons
+                      name={folder.icon as any}
+                      size={16}
+                      color={
+                        noteFolder === folder.id
+                          ? "#FFFFFF"
+                          : colors.muted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.folderOptionText,
+                        {
+                          color:
+                            noteFolder === folder.id
+                              ? "#FFFFFF"
+                              : colors.muted,
+                        },
+                      ]}
+                    >
+                      {folder.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.colorSelector}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {NOTE_COLORS.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[
+                      styles.colorOption,
+                      {
+                        backgroundColor: c,
+                        borderColor:
+                          c === "#FFFFFF"
+                            ? colors.border
+                            : "transparent",
+                        borderWidth: c === "#FFFFFF" ? 1 : 0,
+                      },
+                    ]}
+                    onPress={() => setNoteColor(c)}
+                  >
+                    {noteColor === c && (
+                      <Ionicons
+                        name="checkmark"
+                        size={16}
+                        color={colors.foreground}
+                      />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <TextInput
+              style={[
+                styles.contentInput,
+                {
+                  backgroundColor: noteColor,
+                  color: colors.foreground,
+                  borderColor: colors.border,
+                },
+              ]}
+              value={noteContent}
+              onChangeText={setNoteContent}
+              placeholder="Запишите свои мысли..."
+              placeholderTextColor={colors.muted}
+              multiline
+              textAlignVertical="top"
+            />
+          </ScrollView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  searchContainer: {
+  container: { flex: 1 },
+  header: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 16 },
+  folderTabs: { marginBottom: 16 },
+  folderTab: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 12,
     paddingHorizontal: 12,
-    height: 48,
-  },
-  searchIcon: {
+    paddingVertical: 8,
+    borderRadius: 20,
     marginRight: 8,
+    gap: 6,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-
-  // Папки
-  foldersScroll: {
-    flexDirection: "row",
-  },
-  folderCard: {
-    width: 100,
-    borderRadius: 16,
-    padding: 12,
-    marginRight: 12,
-    alignItems: "center",
-    borderWidth: 1,
-  },
-  folderIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  folderName: {
-    fontSize: 12,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  folderCount: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-
-  // Шаблоны
-  templatesGrid: {
+  folderTabText: { fontSize: 13, fontWeight: "500" },
+  notesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
   },
-  templateCard: {
-    width: "23%",
-    minWidth: 80,
+  noteCard: {
+    width: (SCREEN_WIDTH - 44) / 2,
+    minHeight: 140,
     borderRadius: 12,
     padding: 12,
-    alignItems: "center",
   },
-  templateIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
+  pinnedBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
   },
-  templateTitle: {
-    fontSize: 11,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-
-  // Заметки
-  noteCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  noteHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  noteInfo: {
+  noteFolderTag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  noteFolder: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-  },
-  noteFolderText: {
-    fontSize: 10,
-    fontWeight: "600",
-    textTransform: "uppercase",
-  },
-  noteActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  noteAction: {
-    padding: 4,
-  },
-  noteTitle: {
-    fontSize: 16,
-    fontWeight: "600",
+    borderRadius: 8,
+    alignSelf: "flex-start",
     marginBottom: 8,
+    gap: 4,
   },
-  noteContent: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
+  noteFolderText: { fontSize: 10, fontWeight: "500" },
+  noteTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
+  notePreview: { fontSize: 12, flex: 1 },
   noteFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginTop: 8,
   },
-  noteDate: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  linkedTasks: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  linkedTasksText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  // Пустое состояние
+  noteDate: { fontSize: 11 },
   emptyState: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 64,
+    minHeight: 200,
   },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 8,
+  emptyText: { marginTop: 12, fontSize: 14 },
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  emptyStateSubtext: {
-    fontSize: 14,
-    textAlign: "center",
-    paddingHorizontal: 32,
-  },
-
-  // Модальное окно
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: "90%",
-  },
+  modal: { flex: 1, paddingTop: 20 },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
-    borderBottomWidth: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.1)",
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  modalBody: {
-    padding: 20,
-  },
+  modalTitle: { fontSize: 18, fontWeight: "600" },
+  modalContent: { padding: 16 },
   titleInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600",
     marginBottom: 16,
   },
-  contentInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    minHeight: 200,
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 12,
-  },
-  modalFoldersScroll: {
-    marginBottom: 20,
-  },
-  folderChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.1)",
-  },
-  folderChipText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  colorPicker: {
+  folderSelector: { marginBottom: 16 },
+  folderOption: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginRight: 8,
+    gap: 6,
   },
+  folderOptionText: { fontSize: 13, fontWeight: "500" },
+  colorSelector: { marginBottom: 16 },
   colorOption: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
+    marginRight: 8,
   },
-  modalFooter: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.1)",
-  },
-  saveButton: {
-    padding: 14,
+  contentInput: {
+    minHeight: 200,
     borderRadius: 12,
-    alignItems: "center",
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
+    padding: 16,
+    fontSize: 15,
+    borderWidth: 1,
   },
 });

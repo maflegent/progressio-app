@@ -1,6 +1,5 @@
-// app/(tabs)/analytics.tsx - улучшенная версия без заглушек
+// app/(tabs)/analytics.tsx - улучшенная аналитика
 import { Colors } from "@/constants/Colors";
-import { FeatureIcons } from "@/constants/Icons";
 import { GlobalStyles } from "@/constants/Styles";
 import { useAppTheme } from "@/contexts/SettingsContext";
 import { AnalyticsData, analyticsStorage } from "@/utils/analyticsStorage";
@@ -19,13 +18,16 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
+type TimeRange = "day" | "week" | "month" | "year";
+
 export default function AnalyticsScreen() {
   const colorScheme = useAppTheme();
   const colors = Colors[colorScheme];
-  const [timeRange, setTimeRange] = useState<"week" | "month" | "year">("week");
+  const [timeRange, setTimeRange] = useState<TimeRange>("week");
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "priorities" | "folders" | "tags">("overview");
 
   useEffect(() => {
     loadData();
@@ -50,9 +52,17 @@ export default function AnalyticsScreen() {
   };
 
   const timeRanges = [
-    { id: "week", label: "Неделя" },
-    { id: "month", label: "Месяц" },
-    { id: "year", label: "Год" },
+    { id: "day" as TimeRange, label: "День" },
+    { id: "week" as TimeRange, label: "Неделя" },
+    { id: "month" as TimeRange, label: "Месяц" },
+    { id: "year" as TimeRange, label: "Год" },
+  ];
+
+  const tabs = [
+    { id: "overview" as const, label: "Обзор", icon: "grid" },
+    { id: "priorities" as const, label: "Приоритеты", icon: "flag" },
+    { id: "folders" as const, label: "Папки", icon: "folder" },
+    { id: "tags" as const, label: "Теги", icon: "pricetag" },
   ];
 
   if (isLoading || !data) {
@@ -68,13 +78,12 @@ export default function AnalyticsScreen() {
     );
   }
 
-  const productivityData = data.productivity[timeRange];
-  const maxTasks = Math.max(...data.weeklyStats.map((stat) => stat.tasks), 1);
+  const productivityData = data.productivity[timeRange === "day" ? "week" : timeRange] || data.productivity.week;
+  const maxDaily = Math.max(...data.dailyStats.map((d) => d.tasksCreated), 1);
+  const maxMonthly = Math.max(...data.monthlyStats.map((m) => m.tasksCreated), 1);
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
@@ -82,18 +91,18 @@ export default function AnalyticsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Заголовок и селектор периода */}
         <View style={[styles.header, GlobalStyles.section]}>
           <View>
             <Text style={[GlobalStyles.title, { color: colors.foreground }]}>
               Аналитика
             </Text>
             <Text style={[GlobalStyles.subtitle, { color: colors.muted }]}>
-              Отслеживайте свой прогресс и улучшения
+              {data.overview.completedTasks} из {data.overview.totalTasks} задач выполнено
             </Text>
           </View>
+        </View>
 
-          {/* Селектор периода */}
+        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
           <View style={styles.timeRangeSelector}>
             {timeRanges.map((range) => (
               <TouchableOpacity
@@ -102,7 +111,7 @@ export default function AnalyticsScreen() {
                   styles.timeRangeButton,
                   timeRange === range.id && { backgroundColor: colors.primary },
                 ]}
-                onPress={() => setTimeRange(range.id as any)}
+                onPress={() => setTimeRange(range.id)}
               >
                 <Text
                   style={[
@@ -119,19 +128,45 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
-        {/* Основная статистика */}
         <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-          <View
-            style={[
-              styles.mainStatCard,
-              GlobalStyles.shadow,
-              { backgroundColor: colors.card },
-            ]}
-          >
+          <View style={[styles.overviewCard, { backgroundColor: colors.card }]}>
+            <View style={styles.overviewRow}>
+              <OverviewStat
+                label="Всего"
+                value={data.overview.totalTasks}
+                icon="list"
+                color={colors.primary}
+                colors={colors}
+              />
+              <OverviewStat
+                label="Выполнено"
+                value={data.overview.completedTasks}
+                icon="checkmark-circle"
+                color="#10B981"
+                colors={colors}
+              />
+              <OverviewStat
+                label="В работе"
+                value={data.overview.activeTasks}
+                icon="time"
+                color="#F59E0B"
+                colors={colors}
+              />
+              <OverviewStat
+                label="Просрочено"
+                value={data.overview.overdueTasks}
+                icon="alert-circle"
+                color="#EF4444"
+                colors={colors}
+              />
+            </View>
+          </View>
+        </View>
+
+        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
+          <View style={[styles.mainStatCard, { backgroundColor: colors.card }]}>
             <View style={styles.mainStatHeader}>
-              <Text
-                style={[styles.mainStatTitle, { color: colors.cardForeground }]}
-              >
+              <Text style={[styles.mainStatTitle, { color: colors.cardForeground }]}>
                 Продуктивность
               </Text>
               <View
@@ -141,7 +176,9 @@ export default function AnalyticsScreen() {
                     backgroundColor:
                       productivityData.trend === "up"
                         ? "rgba(16, 185, 129, 0.1)"
-                        : "rgba(239, 68, 68, 0.1)",
+                        : productivityData.trend === "down"
+                        ? "rgba(239, 68, 68, 0.1)"
+                        : "rgba(156, 163, 175, 0.1)",
                   },
                 ]}
               >
@@ -149,11 +186,17 @@ export default function AnalyticsScreen() {
                   name={
                     productivityData.trend === "up"
                       ? "trending-up"
-                      : "trending-down"
+                      : productivityData.trend === "down"
+                      ? "trending-down"
+                      : "remove"
                   }
                   size={16}
                   color={
-                    productivityData.trend === "up" ? "#10B981" : "#EF4444"
+                    productivityData.trend === "up"
+                      ? "#10B981"
+                      : productivityData.trend === "down"
+                      ? "#EF4444"
+                      : "#9CA3AF"
                   }
                 />
                 <Text
@@ -161,11 +204,15 @@ export default function AnalyticsScreen() {
                     styles.trendText,
                     {
                       color:
-                        productivityData.trend === "up" ? "#10B981" : "#EF4444",
+                        productivityData.trend === "up"
+                          ? "#10B981"
+                          : productivityData.trend === "down"
+                          ? "#EF4444"
+                          : "#9CA3AF",
                     },
                   ]}
                 >
-                  {productivityData.change}
+                  {productivityData.change >= 0 ? "+" : ""}{productivityData.change}%
                 </Text>
               </View>
             </View>
@@ -183,7 +230,7 @@ export default function AnalyticsScreen() {
                 >
                   <View
                     style={[
-                      styles.progressFill,
+                      styles.progressFillBar,
                       {
                         width: `${productivityData.value}%`,
                         backgroundColor: colors.primary,
@@ -196,86 +243,174 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
-        {/* Ключевые метрики */}
         <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-            Ключевые метрики
+            Прогресс целей
           </Text>
-          <View style={styles.metricsGrid}>
-            <MetricCard
-              title="Задачи выполнено"
-              value={data.metrics.tasksCompleted.value}
-              progress={data.metrics.tasksCompleted.progress}
-              icon={FeatureIcons.analytics.productivity}
-              color="#3B82F6"
-              colors={colors}
-            />
-
-            <MetricCard
-              title="Дней подряд"
-              value={data.metrics.streak.value}
-              progress={data.metrics.streak.progress}
-              icon={FeatureIcons.analytics.consistency}
-              color="#10B981"
-              colors={colors}
-            />
-
-            <MetricCard
-              title="Средняя оценка"
-              value={data.metrics.averageMood.value}
-              progress={data.metrics.averageMood.progress}
-              icon="star"
-              color="#F59E0B"
-              colors={colors}
-            />
-          </View>
+          {data.goals.map((goal) => (
+            <GoalCard key={goal.id} goal={goal} colors={colors} />
+          ))}
         </View>
 
-        {/* Еженедельная статистика */}
+        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
+          <View style={styles.tabSelector}>
+            {tabs.map((tab) => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[
+                  styles.tabButton,
+                  activeTab === tab.id && { backgroundColor: colors.primary },
+                ]}
+                onPress={() => setActiveTab(tab.id)}
+              >
+                <Ionicons
+                  name={tab.icon as any}
+                  size={16}
+                  color={activeTab === tab.id ? colors.primaryForeground : colors.muted}
+                />
+                <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === tab.id
+                      ? { color: colors.primaryForeground }
+                      : { color: colors.muted },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {activeTab === "overview" && (
+            <View style={[styles.dataCard, { backgroundColor: colors.card }]}>
+              <View style={styles.metricRow}>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: colors.muted }]}>
+                    Текущая серия
+                  </Text>
+                  <Text style={[styles.metricValue, { color: "#10B981" }]}>
+                    {data.metrics.currentStreak.value} дней
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: colors.muted }]}>
+                    Рекорд
+                  </Text>
+                  <Text style={[styles.metricValue, { color: "#F59E0B" }]}>
+                    {data.metrics.longestStreak} дней
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.metricRow}>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: colors.muted }]}>
+                    Среднее настроение
+                  </Text>
+                  <Text style={[styles.metricValue, { color: "#8B5CF6" }]}>
+                    {data.metrics.averageMood.value}/5
+                  </Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={[styles.metricLabel, { color: colors.muted }]}>
+                    Выполнение
+                  </Text>
+                  <Text style={[styles.metricValue, { color: colors.primary }]}>
+                    {data.metrics.completionRate.value}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {activeTab === "priorities" && (
+            <View style={[styles.dataCard, { backgroundColor: colors.card }]}>
+              {data.priorities.map((p) => (
+                <ProgressBarRow
+                  key={p.priority}
+                  label={getPriorityLabel(p.priority)}
+                  value={p.completed}
+                  total={p.total}
+                  rate={p.completionRate}
+                  color={getPriorityColor(p.priority)}
+                  colors={colors}
+                />
+              ))}
+            </View>
+          )}
+
+          {activeTab === "folders" && (
+            <View style={[styles.dataCard, { backgroundColor: colors.card }]}>
+              {data.folders.length === 0 ? (
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  Нет данных о папках
+                </Text>
+              ) : (
+                data.folders.map((f, i) => (
+                  <ProgressBarRow
+                    key={f.folder}
+                    label={f.folder}
+                    value={f.completed}
+                    total={f.total}
+                    rate={f.completionRate}
+                    color={getFolderColor(i)}
+                    colors={colors}
+                  />
+                ))
+              )}
+            </View>
+          )}
+
+          {activeTab === "tags" && (
+            <View style={[styles.dataCard, { backgroundColor: colors.card }]}>
+              {data.tags.length === 0 ? (
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  Нет данных о тегах
+                </Text>
+              ) : (
+                data.tags.slice(0, 8).map((t) => (
+                  <ProgressBarRow
+                    key={t.tag}
+                    label={`#${t.tag}`}
+                    value={t.completed}
+                    total={t.total}
+                    rate={t.completionRate}
+                    color={colors.primary}
+                    colors={colors}
+                  />
+                ))
+              )}
+            </View>
+          )}
+        </View>
+
         <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
           <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
             Недельная активность
           </Text>
-          <View
-            style={[
-              styles.weeklyCard,
-              GlobalStyles.shadow,
-              { backgroundColor: colors.card },
-            ]}
-          >
-            <View style={styles.weeklyChart}>
-              {data.weeklyStats.map((stat, index) => (
+          <View style={[styles.chartCard, { backgroundColor: colors.card }]}>
+            <View style={styles.chart}>
+              {data.dailyStats.map((stat, index) => (
                 <View key={index} style={styles.chartColumn}>
-                  <View style={styles.chartBars}>
+                  <View style={styles.chartBar}>
                     <View
                       style={[
-                        styles.totalBar,
+                        styles.barCompleted,
                         {
-                          height: (stat.tasks / maxTasks) * 80,
-                          backgroundColor: `${colors.primary}20`,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.completedBar,
-                        {
-                          height: (stat.completed / maxTasks) * 80,
+                          height: Math.max(
+                            (stat.tasksCompleted / maxDaily) * 60,
+                            4
+                          ),
                           backgroundColor: colors.primary,
                         },
                       ]}
                     />
                   </View>
                   <Text style={[styles.chartDay, { color: colors.muted }]}>
-                    {stat.day}
+                    {stat.dayName}
                   </Text>
-                  <Text
-                    style={[
-                      styles.chartValue,
-                      { color: colors.cardForeground },
-                    ]}
-                  >
-                    {stat.completed}/{stat.tasks}
+                  <Text style={[styles.chartValue, { color: colors.cardForeground }]}>
+                    {stat.tasksCompleted}
                   </Text>
                 </View>
               ))}
@@ -283,11 +418,44 @@ export default function AnalyticsScreen() {
           </View>
         </View>
 
-        {/* Рекомендации */}
+        <View style={[GlobalStyles.section, { paddingHorizontal: 16, paddingBottom: 32 }]}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+            Месячная динамика
+          </Text>
+          <View style={[styles.chartCard, { backgroundColor: colors.card }]}>
+            <View style={styles.chart}>
+              {data.monthlyStats.map((stat, index) => (
+                <View key={index} style={styles.chartColumn}>
+                  <View style={styles.chartBar}>
+                    <View
+                      style={[
+                        styles.barCompleted,
+                        {
+                          height: Math.max(
+                            (stat.tasksCompleted / maxMonthly) * 60,
+                            4
+                          ),
+                          backgroundColor: "#10B981",
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={[styles.chartDay, { color: colors.muted }]}>
+                    {stat.month}
+                  </Text>
+                  <Text style={[styles.chartValue, { color: colors.cardForeground }]}>
+                    {stat.completionRate}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+
         <View
           style={[
             GlobalStyles.section,
-            { paddingHorizontal: 16, paddingBottom: 32 },
+            { paddingHorizontal: 16, paddingBottom: 100 },
           ]}
         >
           <View style={styles.sectionHeader}>
@@ -299,55 +467,17 @@ export default function AnalyticsScreen() {
             </TouchableOpacity>
           </View>
 
-          <View
-            style={[
-              styles.insightsCard,
-              GlobalStyles.shadow,
-              { backgroundColor: colors.card },
-            ]}
-          >
-            <View style={styles.insightsHeader}>
-              <Ionicons
-                name={FeatureIcons.analytics.insights}
-                size={24}
-                color={colors.primary}
-              />
-              <Text
-                style={[styles.insightsTitle, { color: colors.cardForeground }]}
-              >
-                Персональные рекомендации
-              </Text>
-            </View>
-
-            <View style={styles.insightsList}>
-              {data.insights.map((insight, index) => (
-                <View key={index} style={styles.insightItem}>
-                  <View
-                    style={[
-                      styles.insightBullet,
-                      { backgroundColor: colors.primary },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.insightText,
-                      { color: colors.cardForeground },
-                    ]}
-                  >
-                    {insight}
-                  </Text>
-                </View>
-              ))}
-            </View>
-
-            <TouchableOpacity style={styles.insightsButton} onPress={onRefresh}>
-              <Text
-                style={[styles.insightsButtonText, { color: colors.primary }]}
-              >
-                Обновить рекомендации
-              </Text>
-              <Ionicons name="refresh" size={16} color={colors.primary} />
-            </TouchableOpacity>
+          <View style={[styles.insightsCard, { backgroundColor: colors.card }]}>
+            {data.insights.map((insight, index) => (
+              <View key={index} style={styles.insightItem}>
+                <View
+                  style={[styles.insightBullet, { backgroundColor: colors.primary }]}
+                />
+                <Text style={[styles.insightText, { color: colors.cardForeground }]}>
+                  {insight}
+                </Text>
+              </View>
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -355,84 +485,130 @@ export default function AnalyticsScreen() {
   );
 }
 
-// Компонент карточки метрики
-const MetricCard = ({
-  title,
+const OverviewStat = ({
+  label,
   value,
-  progress,
   icon,
   color,
   colors,
 }: {
-  title: string;
-  value: string;
-  progress: number;
-  icon: any;
+  label: string;
+  value: number;
+  icon: string;
   color: string;
   colors: any;
 }) => (
-  <View
-    style={[
-      styles.metricCard,
-      GlobalStyles.shadow,
-      { backgroundColor: colors.card },
-    ]}
-  >
-    <View style={[styles.metricIcon, { backgroundColor: `${color}15` }]}>
-      <Ionicons name={icon} size={24} color={color} />
+  <View style={styles.overviewStat}>
+    <View style={[styles.overviewIcon, { backgroundColor: `${color}15` }]}>
+      <Ionicons name={icon as any} size={20} color={color} />
     </View>
-    <Text style={[styles.metricTitle, { color: colors.cardForeground }]}>
-      {title}
+    <Text style={[styles.overviewValue, { color: colors.cardForeground }]}>
+      {value}
     </Text>
-    <Text style={[styles.metricValue, { color: color }]}>{value}</Text>
-    <View style={styles.metricProgress}>
-      <View
-        style={[styles.metricProgressBar, { backgroundColor: colors.border }]}
-      >
+    <Text style={[styles.overviewLabel, { color: colors.muted }]}>{label}</Text>
+  </View>
+);
+
+const GoalCard = ({ goal, colors }: { goal: any; colors: any }) => {
+  const progress = Math.min(Math.round((goal.current / goal.target) * 100), 100);
+
+  return (
+    <View style={[styles.goalCard, { backgroundColor: colors.card }]}>
+      <View style={styles.goalHeader}>
+        <Text style={[styles.goalTitle, { color: colors.cardForeground }]}>
+          {goal.title}
+        </Text>
+        <Text style={[styles.goalProgress, { color: colors.primary }]}>
+          {goal.current}/{goal.target} {goal.unit}
+        </Text>
+      </View>
+      <View style={[styles.goalProgressBar, { backgroundColor: colors.border }]}>
         <View
           style={[
-            styles.metricProgressFill,
-            {
-              width: `${progress}%`,
-              backgroundColor: color,
-            },
+            styles.goalProgressFill,
+            { width: `${progress}%`, backgroundColor: colors.primary },
           ]}
         />
       </View>
-      <Text style={[styles.metricProgressText, { color: colors.muted }]}>
-        {progress}%
+    </View>
+  );
+};
+
+const ProgressBarRow = ({
+  label,
+  value,
+  total,
+  rate,
+  color,
+  colors,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  rate: number;
+  color: string;
+  colors: any;
+}) => (
+  <View style={styles.progressRow}>
+    <View style={styles.progressLabelRow}>
+      <Text style={[styles.progressLabel, { color: colors.cardForeground }]}>
+        {label}
       </Text>
+      <Text style={[styles.progressValue, { color: colors.muted }]}>
+        {value}/{total}
+      </Text>
+    </View>
+    <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+      <View
+        style={[
+          styles.progressFillBar,
+          { width: `${rate}%`, backgroundColor: color },
+        ]}
+      />
     </View>
   </View>
 );
 
+const getPriorityLabel = (priority: string): string => {
+  const labels: Record<string, string> = {
+    urgent: "Срочно",
+    high: "Высокий",
+    medium: "Средний",
+    low: "Низкий",
+  };
+  return labels[priority] || priority;
+};
+
+const getPriorityColor = (priority: string): string => {
+  const colors: Record<string, string> = {
+    urgent: "#EF4444",
+    high: "#F59E0B",
+    medium: "#3B82F6",
+    low: "#10B981",
+  };
+  return colors[priority] || "#6B7280";
+};
+
+const getFolderColor = (index: number): string => {
+  const colors = ["#3B82F6", "#EC4899", "#8B5CF6", "#10B981", "#F59E0B", "#EF4444"];
+  return colors[index % colors.length];
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
+  loadingText: { marginTop: 16, fontSize: 16 },
+  header: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 16 },
   timeRangeSelector: {
     flexDirection: "row",
     backgroundColor: "rgba(59, 130, 246, 0.1)",
     borderRadius: 12,
     padding: 4,
-    marginTop: 16,
   },
   timeRangeButton: {
     flex: 1,
@@ -441,29 +617,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  timeRangeText: {
-    fontSize: 14,
-    fontWeight: "500",
+  timeRangeText: { fontSize: 14, fontWeight: "500" },
+  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16 },
+  overviewCard: { borderRadius: 16, padding: 16 },
+  overviewRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  mainStatCard: {
+  overviewStat: { alignItems: "center", flex: 1 },
+  overviewIcon: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
   },
+  overviewValue: { fontSize: 20, fontWeight: "700" },
+  overviewLabel: { fontSize: 12, marginTop: 4 },
+  mainStatCard: { borderRadius: 16, padding: 20 },
   mainStatHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 24,
+    marginBottom: 16,
   },
-  mainStatTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
+  mainStatTitle: { fontSize: 16, fontWeight: "600" },
   trendBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -472,145 +651,81 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     gap: 4,
   },
-  trendText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  mainStatContent: {
-    alignItems: "center",
-  },
-  mainStatValue: {
-    fontSize: 48,
-    fontWeight: "700",
+  trendText: { fontSize: 12, fontWeight: "600" },
+  mainStatContent: { alignItems: "center" },
+  mainStatValue: { fontSize: 48, fontWeight: "700", marginBottom: 12 },
+  progressContainer: { width: "100%" },
+  progressBackground: { height: 8, borderRadius: 4, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 4 },
+  tabSelector: {
+    flexDirection: "row",
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    borderRadius: 12,
+    padding: 4,
     marginBottom: 16,
   },
-  progressContainer: {
-    width: "100%",
-  },
-  progressBackground: {
-    height: 8,
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  metricCard: {
+  tabButton: {
     flex: 1,
-    minWidth: (SCREEN_WIDTH - 44) / 2,
-    borderRadius: 16,
-    padding: 20,
-    alignItems: "center",
-  },
-  metricIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    gap: 4,
   },
-  metricTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 8,
+  tabText: { fontSize: 12, fontWeight: "500" },
+  dataCard: { borderRadius: 16, padding: 16, gap: 12 },
+  metricRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 12,
-  },
-  metricProgress: {
-    width: "100%",
-  },
-  metricProgressBar: {
-    height: 4,
-    borderRadius: 2,
-    marginBottom: 4,
-    overflow: "hidden",
-  },
-  metricProgressFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  metricProgressText: {
-    fontSize: 12,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  weeklyCard: {
-    borderRadius: 16,
-    padding: 20,
-  },
-  weeklyChart: {
+  metricItem: { flex: 1, alignItems: "center" },
+  metricLabel: { fontSize: 12, marginBottom: 4 },
+  metricValue: { fontSize: 18, fontWeight: "700" },
+  emptyText: { textAlign: "center", fontSize: 14 },
+  chartCard: { borderRadius: 16, padding: 16 },
+  chart: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    height: 160,
+    height: 100,
   },
-  chartColumn: {
-    alignItems: "center",
-    flex: 1,
+  chartColumn: { alignItems: "center", flex: 1 },
+  chartBar: { height: 60, justifyContent: "flex-end" },
+  barCompleted: {
+    width: 20,
+    borderRadius: 4,
   },
-  chartBars: {
-    position: "relative",
-    height: 80,
-    width: 16,
-    marginBottom: 8,
-  },
-  totalBar: {
-    position: "absolute",
-    bottom: 0,
-    width: "100%",
-    borderRadius: 8,
-  },
-  completedBar: {
-    position: "absolute",
-    bottom: 0,
-    width: "100%",
-    borderRadius: 8,
-  },
-  chartDay: {
-    fontSize: 12,
-    fontWeight: "500",
+  chartDay: { fontSize: 11, marginTop: 8 },
+  chartValue: { fontSize: 10, fontWeight: "600", marginTop: 2 },
+  progressRow: { marginBottom: 12 },
+  progressLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginBottom: 4,
   },
-  chartValue: {
-    fontSize: 10,
-    fontWeight: "600",
+  progressLabel: { fontSize: 14, fontWeight: "500" },
+  progressValue: { fontSize: 12 },
+  progressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
+  progressFillBar: { height: "100%", borderRadius: 3 },
+  goalCard: { borderRadius: 12, padding: 16, marginBottom: 12 },
+  goalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
+  goalTitle: { fontSize: 14, fontWeight: "600" },
+  goalProgress: { fontSize: 14, fontWeight: "600" },
+  goalProgressBar: { height: 6, borderRadius: 3, overflow: "hidden" },
+  goalProgressFill: { height: "100%", borderRadius: 3 },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  insightsCard: {
-    borderRadius: 16,
-    padding: 20,
-  },
-  insightsHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-    gap: 12,
-  },
-  insightsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    flex: 1,
-  },
-  insightsList: {
-    gap: 12,
-    marginBottom: 20,
-  },
+  insightsCard: { borderRadius: 16, padding: 16, gap: 12 },
   insightItem: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -626,16 +741,5 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
-  },
-  insightsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    gap: 8,
-  },
-  insightsButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
   },
 });

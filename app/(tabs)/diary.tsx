@@ -1,14 +1,15 @@
-// app/(tabs)/diary.tsx - улучшенная версия с календарём эмоций
+// app/(tabs)/diary.tsx - улучшенный дневник с задачами
 import { Colors } from "@/constants/Colors";
-import { FeatureIcons } from "@/constants/Icons";
 import { GlobalStyles } from "@/constants/Styles";
 import { useAppTheme } from "@/contexts/SettingsContext";
+import { useTasks } from "@/contexts/TaskContext";
 import { DiaryEntry, Mood } from "@/types";
 import { diaryStorage } from "@/utils/storage";
 import { Ionicons } from "@expo/vector-icons";
+import { Stack, useRouter } from "expo-router";
 import {
+  addDays,
   addMonths,
-  eachDayOfInterval,
   endOfMonth,
   format,
   isSameDay,
@@ -20,6 +21,7 @@ import { ru } from "date-fns/locale";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -30,37 +32,36 @@ import {
   View,
 } from "react-native";
 
-// Компонент ячейки календаря с эмоцией
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const MOOD_CONFIG = [
+  { id: "awful" as Mood, label: "Ужасно", icon: "sad", color: "#DC2626", score: 1 },
+  { id: "bad" as Mood, label: "Плохо", icon: "thumbs-down", color: "#F59E0B", score: 2 },
+  { id: "neutral" as Mood, label: "Нормально", icon: "remove-circle", color: "#6B7280", score: 3 },
+  { id: "good" as Mood, label: "Хорошо", icon: "thumbs-up", color: "#10B981", score: 4 },
+  { id: "awesome" as Mood, label: "Отлично", icon: "happy", color: "#3B82F6", score: 5 },
+];
+
 const CalendarDay = ({
   date,
   entries,
-  moodOptions,
   colors,
   onPress,
 }: {
   date: Date;
   entries: DiaryEntry[];
-  moodOptions: any[];
   colors: any;
   onPress: () => void;
 }) => {
-  const dayEntry = entries.find((entry) =>
-    isSameDay(new Date(entry.date), date),
-  );
-
-  const mood = dayEntry
-    ? moodOptions.find((m) => m.id === dayEntry.mood)
-    : null;
-  const dayNumber = format(date, "d");
+  const dayEntry = entries.find((e) => isSameDay(new Date(e.date), date));
+  const mood = dayEntry ? MOOD_CONFIG.find((m) => m.id === dayEntry.mood) : null;
 
   return (
     <TouchableOpacity
       style={[
         styles.calendarDay,
         {
-          backgroundColor: isToday(date)
-            ? `${colors.primary}15`
-            : "transparent",
+          backgroundColor: isToday(date) ? `${colors.primary}15` : "transparent",
           borderColor: isToday(date) ? colors.primary : "transparent",
         },
       ]}
@@ -69,30 +70,21 @@ const CalendarDay = ({
       <Text
         style={[
           styles.dayNumber,
-          {
-            color: isToday(date) ? colors.primary : colors.foreground,
-            fontWeight: isToday(date) ? "700" : "400",
-          },
+          { color: isToday(date) ? colors.primary : colors.foreground },
         ]}
       >
-        {dayNumber}
+        {format(date, "d")}
       </Text>
       {mood && (
-        <View
-          style={[styles.moodIndicator, { backgroundColor: mood.color + "30" }]}
-        >
-          <Ionicons name={mood.icon} size={12} color={mood.color} />
-        </View>
+        <View style={[styles.moodDot, { backgroundColor: mood.color }]} />
       )}
     </TouchableOpacity>
   );
 };
 
-// Компонент календаря
 const CalendarView = ({
   currentDate,
   entries,
-  moodOptions,
   colors,
   onDateSelect,
   onPrevMonth,
@@ -100,7 +92,6 @@ const CalendarView = ({
 }: {
   currentDate: Date;
   entries: DiaryEntry[];
-  moodOptions: any[];
   colors: any;
   onDateSelect: (date: Date) => void;
   onPrevMonth: () => void;
@@ -108,53 +99,49 @@ const CalendarView = ({
 }) => {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
-  const calendarDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startPadding = monthStart.getDay() === 0 ? 6 : monthStart.getDay() - 1;
+  const days: Date[] = [];
+  
+  for (let i = 0; i < startPadding; i++) {
+    days.push(addDays(monthStart, -startPadding + i));
+  }
+  
+  const current = new Date(monthStart);
+  while (current <= monthEnd) {
+    days.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
 
-  // Добавляем пустые ячейки для выравнивания по дням недели
-  const firstDayOfWeek = monthStart.getDay();
-  const emptyDays = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; // Понедельник = 0
-
-  const weekDays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+  const dayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
   return (
-    <View style={[styles.calendarContainer, { backgroundColor: colors.card }]}>
+    <View style={[styles.calendarCard, { backgroundColor: colors.card }]}>
       <View style={styles.calendarHeader}>
-        <TouchableOpacity onPress={onPrevMonth}>
-          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
+        <TouchableOpacity onPress={onPrevMonth} style={styles.navButton}>
+          <Ionicons name="chevron-back" size={24} color={colors.muted} />
         </TouchableOpacity>
         <Text style={[styles.calendarTitle, { color: colors.foreground }]}>
           {format(currentDate, "LLLL yyyy", { locale: ru })}
         </Text>
-        <TouchableOpacity onPress={onNextMonth}>
-          <Ionicons
-            name="chevron-forward"
-            size={24}
-            color={colors.foreground}
-          />
+        <TouchableOpacity onPress={onNextMonth} style={styles.navButton}>
+          <Ionicons name="chevron-forward" size={24} color={colors.muted} />
         </TouchableOpacity>
       </View>
-
-      <View style={styles.weekDays}>
-        {weekDays.map((day) => (
-          <Text key={day} style={[styles.weekDay, { color: colors.muted }]}>
-            {day}
+      
+      <View style={styles.dayNamesRow}>
+        {dayNames.map((d) => (
+          <Text key={d} style={[styles.dayName, { color: colors.muted }]}>
+            {d}
           </Text>
         ))}
       </View>
-
+      
       <View style={styles.calendarGrid}>
-        {/* Пустые ячейки */}
-        {Array.from({ length: emptyDays }).map((_, index) => (
-          <View key={`empty-${index}`} style={styles.calendarDay} />
-        ))}
-
-        {/* Дни месяца */}
-        {calendarDays.map((date) => (
+        {days.map((date, i) => (
           <CalendarDay
-            key={date.getTime()}
+            key={i}
             date={date}
             entries={entries}
-            moodOptions={moodOptions}
             colors={colors}
             onPress={() => onDateSelect(date)}
           />
@@ -164,57 +151,71 @@ const CalendarView = ({
   );
 };
 
+// Компонент списка задач за день
+const DayTasks = ({
+  date,
+  tasks,
+  colors,
+  onTaskPress,
+}: {
+  date: Date;
+  tasks: any[];
+  colors: any;
+  onTaskPress: (id: string) => void;
+}) => {
+  const dayTasks = tasks.filter((t) => {
+    const taskDate = t.dueDate ? new Date(t.dueDate) : null;
+    return taskDate && isSameDay(taskDate, date);
+  });
+
+  if (dayTasks.length === 0) return null;
+
+  const priorityColors: Record<string, string> = {
+    urgent: "#EF4444",
+    high: "#F59E0B",
+    medium: "#3B82F6",
+    low: "#10B981",
+  };
+
+  return (
+    <View style={[styles.dayTasksCard, { backgroundColor: colors.card }]}>
+      <Text style={[styles.dayTasksTitle, { color: colors.foreground }]}>
+        Задачи на {format(date, "d MMM", { locale: ru })}
+      </Text>
+      {dayTasks.map((task) => (
+        <TouchableOpacity
+          key={task.id}
+          style={[styles.dayTaskItem, { borderBottomColor: colors.border }]}
+          onPress={() => onTaskPress(task.id)}
+        >
+          <View style={[styles.dayTaskDot, { backgroundColor: priorityColors[task.priority] }]} />
+          <Text style={[styles.dayTaskTitle, { color: colors.foreground }]} numberOfLines={1}>
+            {task.title}
+          </Text>
+          {task.isCompleted && <Ionicons name="checkmark-circle" size={16} color={colors.success} />}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
 export default function DiaryScreen() {
+  const router = useRouter();
   const colorScheme = useAppTheme();
   const colors = Colors[colorScheme];
+  const { tasks } = useTasks();
 
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [entryText, setEntryText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-
-  // Календарь
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showEntryModal, setShowEntryModal] = useState(false);
-  const [selectedDateEntry, setSelectedDateEntry] = useState<DiaryEntry | null>(
-    null,
-  );
+  const [selectedDateEntry, setSelectedDateEntry] = useState<DiaryEntry | null>(null);
+  const [showTaskList, setShowTaskList] = useState(false);
+  const [tasksForDate, setTasksForDate] = useState<any[]>([]);
 
-  const moodOptions = [
-    {
-      id: "awful" as Mood,
-      label: "Ужасно",
-      icon: FeatureIcons.mood.awful,
-      color: "#DC2626",
-    },
-    {
-      id: "bad" as Mood,
-      label: "Плохо",
-      icon: FeatureIcons.mood.bad,
-      color: "#F59E0B",
-    },
-    {
-      id: "neutral" as Mood,
-      label: "Нормально",
-      icon: FeatureIcons.mood.neutral,
-      color: "#6B7280",
-    },
-    {
-      id: "good" as Mood,
-      label: "Хорошо",
-      icon: FeatureIcons.mood.good,
-      color: "#10B981",
-    },
-    {
-      id: "awesome" as Mood,
-      label: "Отлично",
-      icon: FeatureIcons.mood.awesome,
-      color: "#3B82F6",
-    },
-  ];
-
-  // Загружаем записи при монтировании
   useEffect(() => {
     loadEntries();
   }, []);
@@ -222,762 +223,496 @@ export default function DiaryScreen() {
   const loadEntries = async () => {
     try {
       setIsLoading(true);
-      const loadedEntries = await diaryStorage.loadEntries();
-      setEntries(loadedEntries);
+      const loaded = await diaryStorage.loadEntries();
+      setEntries(loaded);
     } catch (error) {
-      console.error("Error loading entries:", error);
-      Alert.alert("Ошибка", "Не удалось загрузить записи");
+      console.error("Error loading:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleDateSelect = (date: Date) => {
+    const entry = entries.find((e) => isSameDay(new Date(e.date), date));
+    const dayTasks = tasks.filter((t) => {
+      const taskDate = t.dueDate ? new Date(t.dueDate) : null;
+      return taskDate && isSameDay(taskDate, date);
+    });
+    
+    setSelectedDate(date);
+    setSelectedDateEntry(entry || null);
+    setSelectedMood(entry?.mood || null);
+    setEntryText(entry?.content || "");
+    setTasksForDate(dayTasks);
+    setShowTaskList(dayTasks.length > 0);
+    setShowEntryModal(true);
+  };
+
+  const handleTaskPress = (id: string) => {
+    setShowEntryModal(false);
+    router.push({ pathname: "/task-edit", params: { id } });
+  };
+
   const handleSaveEntry = async () => {
-    if (!selectedMood || !entryText.trim()) {
-      Alert.alert("Ошибка", "Выберите настроение и введите текст записи");
-      return;
-    }
+    if (!selectedMood) return;
+    
+    const entry = {
+      date: selectedDate || new Date(),
+      mood: selectedMood,
+      content: entryText,
+    };
 
     try {
-      setIsLoading(true);
-
-      const newEntry: Omit<DiaryEntry, "id" | "createdAt"> = {
-        date: selectedDate || new Date(),
-        content: entryText.trim(),
-        mood: selectedMood,
-        linkedTasks: [],
-      };
-
-      await diaryStorage.addEntry(newEntry);
-
-      // Очищаем форму
-      setSelectedMood(null);
-      setEntryText("");
-      setShowEntryModal(false);
-      setSelectedDate(null);
-      setSelectedDateEntry(null);
-
-      // Обновляем список
+      if (selectedDateEntry) {
+        await diaryStorage.updateEntry(selectedDateEntry.id, entry);
+      } else {
+        await diaryStorage.addEntry(entry);
+      }
       await loadEntries();
-
-      Alert.alert("Успех", "Запись сохранена");
+      setShowEntryModal(false);
     } catch (error) {
-      console.error("Error saving entry:", error);
-      Alert.alert("Ошибка", "Не удалось сохранить запись");
-    } finally {
-      setIsLoading(false);
+      console.error("Error saving:", error);
     }
   };
 
   const handleDeleteEntry = async (id: string) => {
-    Alert.alert(
-      "Удалить запись",
-      "Вы уверены, что хотите удалить эту запись?",
-      [
-        { text: "Отмена", style: "cancel" },
-        {
-          text: "Удалить",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const success = await diaryStorage.deleteEntry(id);
-              if (success) {
-                await loadEntries();
-                setSelectedDateEntry(null);
-                Alert.alert("Успех", "Запись удалена");
-              }
-            } catch (error) {
-              console.error("Error deleting entry:", error);
-              Alert.alert("Ошибка", "Не удалось удалить запись");
-            }
-          },
-        },
-      ],
-    );
+    try {
+      await diaryStorage.deleteEntry(id);
+      await loadEntries();
+      setSelectedDateEntry(null);
+    } catch (error) {
+      console.error("Error deleting:", error);
+    }
+};
+  
+  const getMoodStats = () => {
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+    const monthAgo = new Date(now);
+    monthAgo.setMonth(now.getMonth() - 1);
+
+    const weekEntries = entries.filter((e) => new Date(e.date) >= weekAgo);
+    const monthEntries = entries.filter((e) => new Date(e.date) >= monthAgo);
+
+    const calcAverage = (eds: DiaryEntry[]) => {
+      if (eds.length === 0) return 0;
+      const sum = eds.reduce((acc, e) => {
+        const m = MOOD_CONFIG.find((m) => m.id === e.mood);
+        return acc + (m?.score || 3);
+      }, 0);
+      return sum / eds.length;
+    };
+
+    const calcStreak = () => {
+      let streak = 0;
+      const sorted = [...entries].sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      
+      for (let i = 0; i < sorted.length; i++) {
+        const curr = new Date(sorted[i].date);
+        const prev = i > 0 ? new Date(sorted[i - 1].date) : null;
+        
+        if (i === 0) {
+          if (isToday(curr) || isSameDay(curr, addDays(new Date(), -1))) {
+            streak = 1;
+          } else {
+            break;
+          }
+        } else if (prev) {
+          const diff = Math.abs(curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+          if (diff <= 1) {
+            streak++;
+          } else {
+            break;
+          }
+        }
+      }
+      return streak;
+    };
+
+    return {
+      weekCount: weekEntries.length,
+      monthCount: monthEntries.length,
+      weekAvg: calcAverage(weekEntries),
+      monthAvg: calcAverage(monthEntries),
+      streak: calcStreak(),
+      total: entries.length,
+    };
   };
 
-  const handleDateSelect = (date: Date) => {
-    setSelectedDate(date);
-    const entry = entries.find((e) => isSameDay(new Date(e.date), date));
-    setSelectedDateEntry(entry || null);
-
-    if (entry) {
-      setEntryText(entry.content);
-      setSelectedMood(entry.mood);
-    } else {
-      setEntryText("");
-      setSelectedMood(null);
+  const getWeeklyTrend = () => {
+    const days: Array<{ day: string; mood: string | null }> = [];
+    const dayLabels = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = addDays(new Date(), -i);
+      const entry = entries.find((e) => isSameDay(new Date(e.date), date));
+      days.push({
+        day: dayLabels[date.getDay()],
+        mood: entry?.mood || null,
+      });
     }
+    return days;
+  };
 
+  const stats = getMoodStats();
+  const weeklyTrend = stats.total > 0 ? getWeeklyTrend() : [];
+
+  const handleOpenNewEntry = () => {
+    setSelectedDate(new Date());
+    setSelectedDateEntry(null);
+    setSelectedMood(null);
+    setEntryText("");
+    setTasksForDate([]);
+    setShowTaskList(false);
     setShowEntryModal(true);
   };
 
-  const getRecentEntries = () => {
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-
-    return entries
-      .filter((entry) => new Date(entry.date) >= weekAgo)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  };
-
-  const getMoodColor = (mood: Mood) => {
-    const moodOption = moodOptions.find((m) => m.id === mood);
-    return moodOption ? moodOption.color : colors.muted;
-  };
-
-  const formatDate = (date: Date | string) => {
-    const dateObj = typeof date === "string" ? new Date(date) : date;
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (dateObj.toDateString() === today.toDateString()) {
-      return "Сегодня";
-    } else if (dateObj.toDateString() === yesterday.toDateString()) {
-      return "Вчера";
-    } else {
-      return dateObj.toLocaleDateString("ru-RU", {
-        day: "numeric",
-        month: "short",
-      });
-    }
-  };
-
-  // Получаем статистику за месяц
-  const getMonthlyStats = () => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    const monthEntries = entries.filter((entry) => {
-      const entryDate = new Date(entry.date);
-      return entryDate >= monthStart && entryDate <= monthEnd;
-    });
-
-    const moodCounts: Record<Mood, number> = {
-      awful: 0,
-      bad: 0,
-      neutral: 0,
-      good: 0,
-      awesome: 0,
-    };
-
-    monthEntries.forEach((entry) => {
-      moodCounts[entry.mood]++;
-    });
-
-    const mostCommonMood = Object.entries(moodCounts).reduce((a, b) =>
-      a[1] > b[1] ? a : b,
-    )[0] as Mood;
-
-    return {
-      total: monthEntries.length,
-      moodCounts,
-      mostCommonMood,
-    };
-  };
-
-  const monthlyStats = getMonthlyStats();
-
-  if (isLoading && entries.length === 0) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.foreground }}>Загрузка...</Text>
-      </View>
-    );
-  }
-
-  const recentEntries = getRecentEntries();
-
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Заголовок */}
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView showsVerticalScrollIndicator={false}>
         <View style={[styles.header, GlobalStyles.section]}>
-          <View>
-            <Text style={[GlobalStyles.title, { color: colors.foreground }]}>
-              Дневник настроения
-            </Text>
-            <Text style={[GlobalStyles.subtitle, { color: colors.muted }]}>
-              {entries.length > 0
-                ? `${entries.length} записей, ${recentEntries.length} за неделю`
-                : "Начните отслеживать свои мысли и эмоции"}
-            </Text>
-          </View>
+          <Text style={[GlobalStyles.title, { color: colors.foreground }]}>Дневник</Text>
+          <Text style={[GlobalStyles.subtitle, { color: colors.muted }]}>
+            {stats.total > 0
+              ? `${stats.total} записей • ${stats.streak} дней подряд`
+              : "Отслеживайте своё настроение"}
+          </Text>
         </View>
 
-        {/* Календарь */}
-        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-          <CalendarView
-            currentDate={currentMonth}
-            entries={entries}
-            moodOptions={moodOptions}
-            colors={colors}
-            onDateSelect={handleDateSelect}
-            onPrevMonth={() => setCurrentMonth(subMonths(currentMonth, 1))}
-            onNextMonth={() => setCurrentMonth(addMonths(currentMonth, 1))}
-          />
-        </View>
+        <CalendarView
+          currentDate={currentMonth}
+          entries={entries}
+          colors={colors}
+          onDateSelect={handleDateSelect}
+          onPrevMonth={() => setCurrentMonth(subMonths(currentMonth, 1))}
+          onNextMonth={() => setCurrentMonth(addMonths(currentMonth, 1))}
+        />
 
-        {/* Статистика за месяц */}
-        {monthlyStats.total > 0 && (
+        {showTaskList && selectedDate && (
           <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-            <View
-              style={[
-                styles.statsCard,
-                GlobalStyles.shadow,
-                { backgroundColor: colors.card },
-              ]}
-            >
-              <Text
-                style={[styles.statsTitle, { color: colors.cardForeground }]}
-              >
-                Статистика за {format(currentMonth, "LLLL", { locale: ru })}
-              </Text>
-              <View style={styles.statsGrid}>
+            <DayTasks
+              date={selectedDate}
+              tasks={tasksForDate}
+              colors={colors}
+              onTaskPress={handleTaskPress}
+            />
+          </View>
+        )}
+
+        {stats.total > 0 && (
+          <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
+            <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
+              <View style={styles.statsRow}>
                 <View style={styles.statItem}>
-                  <Text style={[styles.statValue, { color: colors.primary }]}>
-                    {monthlyStats.total}
+                  <Ionicons name="flame" size={24} color="#F59E0B" />
+                  <Text style={[styles.statValue, { color: colors.foreground }]}>
+                    {stats.streak}
                   </Text>
-                  <Text style={[styles.statLabel, { color: colors.muted }]}>
-                    записей
-                  </Text>
+                  <Text style={[styles.statLabel, { color: colors.muted }]}>Дней</Text>
                 </View>
-                <View style={styles.statDivider} />
+                <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
                 <View style={styles.statItem}>
-                  <View
-                    style={[
-                      styles.moodIcon,
-                      {
-                        backgroundColor: `${getMoodColor(monthlyStats.mostCommonMood)}15`,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={
-                        moodOptions.find(
-                          (m) => m.id === monthlyStats.mostCommonMood,
-                        )?.icon || "help-circle"
-                      }
-                      size={24}
-                      color={getMoodColor(monthlyStats.mostCommonMood)}
-                    />
-                  </View>
-                  <Text style={[styles.statLabel, { color: colors.muted }]}>
-                    Основное настроение
+                  <Ionicons name="calendar" size={24} color={colors.primary} />
+                  <Text style={[styles.statValue, { color: colors.foreground }]}>
+                    {stats.weekCount}
                   </Text>
+                  <Text style={[styles.statLabel, { color: colors.muted }]}>За неделю</Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+                <View style={styles.statItem}>
+                  <Ionicons name="star" size={24} color="#10B981" />
+                  <Text style={[styles.statValue, { color: colors.foreground }]}>
+                    {stats.monthAvg > 0 ? stats.monthAvg.toFixed(1) : "-"}
+                  </Text>
+                  <Text style={[styles.statLabel, { color: colors.muted }]}>Среднее</Text>
                 </View>
               </View>
             </View>
           </View>
         )}
 
-        {/* Быстрая запись */}
-        <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
-          <TouchableOpacity
-            style={[
-              styles.quickAddButton,
-              GlobalStyles.shadow,
-              { backgroundColor: colors.primary },
-            ]}
-            onPress={() => {
-              setSelectedDate(new Date());
-              setSelectedDateEntry(null);
-              setEntryText("");
-              setSelectedMood(null);
-              setShowEntryModal(true);
-            }}
-          >
-            <Ionicons name="add" size={24} color={colors.primaryForeground} />
-            <Text
-              style={[styles.quickAddText, { color: colors.primaryForeground }]}
-            >
-              Записать сегодняшний день
+        {stats.total > 0 && (
+          <View style={[GlobalStyles.section, { paddingHorizontal: 16 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+              Настроение за неделю
             </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Недавние записи */}
-        <View
-          style={[
-            GlobalStyles.section,
-            { paddingHorizontal: 16, paddingBottom: 32 },
-          ]}
-        >
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-            Недавние записи
-          </Text>
-
-          {recentEntries.length > 0 ? (
-            recentEntries.map((entry, index) => (
-              <TouchableOpacity
-                key={entry.id}
-                style={[
-                  styles.entryCard,
-                  GlobalStyles.shadow,
-                  { backgroundColor: colors.card },
-                ]}
-                onPress={() => handleDateSelect(new Date(entry.date))}
-                onLongPress={() => handleDeleteEntry(entry.id)}
-              >
-                <View style={styles.entryHeader}>
-                  <View style={styles.entryMood}>
-                    <Ionicons
-                      name={
-                        moodOptions.find((m) => m.id === entry.mood)?.icon ||
-                        "help-circle"
-                      }
-                      size={16}
-                      color={getMoodColor(entry.mood)}
-                    />
-                    <Text style={[styles.entryDate, { color: colors.muted }]}>
-                      {formatDate(entry.date)}
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => handleDeleteEntry(entry.id)}>
-                    <Ionicons
-                      name="trash-outline"
-                      size={18}
-                      color={colors.muted}
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                <Text
-                  style={[
-                    styles.entryPreview,
-                    { color: colors.cardForeground },
-                  ]}
-                  numberOfLines={3}
-                >
-                  {entry.content}
-                </Text>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons name="journal-outline" size={64} color={colors.muted} />
-              <Text style={[styles.emptyStateText, { color: colors.muted }]}>
-                Записей пока нет
-              </Text>
-              <Text style={[styles.emptyStateSubtext, { color: colors.muted }]}>
-                Нажмите на дату в календаре или кнопку ниже, чтобы создать
-                запись
-              </Text>
-            </View>
-          )}
-        </View>
-
-        {/* Модальное окно записи */}
-        <Modal
-          visible={showEntryModal}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowEntryModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View
-              style={[
-                styles.modalContent,
-                { backgroundColor: colors.background },
-              ]}
-            >
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>
-                  {selectedDateEntry ? "Редактировать запись" : "Новая запись"}
-                  {selectedDate && (
-                    <Text style={[styles.modalDate, { color: colors.muted }]}>
-                      {format(selectedDate, "d MMMM yyyy", { locale: ru })}
-                    </Text>
-                  )}
-                </Text>
-                <TouchableOpacity onPress={() => setShowEntryModal(false)}>
-                  <Ionicons name="close" size={24} color={colors.foreground} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.modalBody}>
-                <Text
-                  style={[styles.sectionTitle, { color: colors.foreground }]}
-                >
-                  Как вы себя чувствуете?
-                </Text>
-                <View style={styles.moodContainer}>
-                  {moodOptions.map((mood) => (
-                    <TouchableOpacity
-                      key={mood.id}
-                      style={[
-                        styles.moodOption,
-                        selectedMood === mood.id && styles.moodSelected,
-                        { borderColor: colors.border },
-                      ]}
-                      onPress={() => setSelectedMood(mood.id)}
-                    >
+            <View style={[styles.trendCard, { backgroundColor: colors.card }]}>
+              <View style={styles.trendRow}>
+                {weeklyTrend.map((item, index) => {
+                  const mood = item.mood
+                    ? MOOD_CONFIG.find((m) => m.id === item.mood)
+                    : null;
+                  return (
+                    <View key={index} style={styles.trendItem}>
                       <View
                         style={[
-                          styles.moodIconContainer,
-                          { backgroundColor: `${mood.color}15` },
+                          styles.trendDot,
+                          {
+                            backgroundColor: mood
+                              ? `${mood.color}30`
+                              : colors.border,
+                            borderColor: mood?.color || "transparent",
+                          },
                         ]}
                       >
-                        <Ionicons
-                          name={mood.icon}
-                          size={24}
-                          color={mood.color}
-                        />
+                        {mood && (
+                          <Ionicons
+                            name={mood.icon as any}
+                            size={16}
+                            color={mood.color}
+                          />
+                        )}
                       </View>
-                      <Text
-                        style={[styles.moodLabel, { color: colors.foreground }]}
-                      >
-                        {mood.label}
+                      <Text style={[styles.trendDay, { color: colors.muted }]}>
+                        {item.day}
                       </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <Text
-                  style={[styles.sectionTitle, { color: colors.foreground }]}
-                >
-                  Ваши мысли и чувства
-                </Text>
-                <TextInput
-                  style={[
-                    styles.entryInput,
-                    {
-                      backgroundColor: colors.card,
-                      color: colors.foreground,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  placeholder="Как прошел ваш день? Что чувствуете?.."
-                  placeholderTextColor={colors.muted}
-                  multiline
-                  numberOfLines={8}
-                  value={entryText}
-                  onChangeText={setEntryText}
-                />
-
-                {selectedDateEntry && (
-                  <TouchableOpacity
-                    style={[
-                      styles.deleteButton,
-                      { backgroundColor: "#EF4444" },
-                    ]}
-                    onPress={() => handleDeleteEntry(selectedDateEntry.id)}
-                  >
-                    <Ionicons name="trash" size={20} color="#FFFFFF" />
-                    <Text style={styles.deleteButtonText}>Удалить запись</Text>
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-
-              <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={[
-                    styles.saveButton,
-                    GlobalStyles.button,
-                    { backgroundColor: colors.primary },
-                    (!selectedMood || !entryText.trim()) &&
-                      styles.buttonDisabled,
-                  ]}
-                  onPress={handleSaveEntry}
-                  disabled={!selectedMood || !entryText.trim() || isLoading}
-                >
-                  <Text
-                    style={[
-                      GlobalStyles.buttonText,
-                      { color: colors.primaryForeground },
-                    ]}
-                  >
-                    {isLoading
-                      ? "Сохранение..."
-                      : selectedDateEntry
-                        ? "Обновить"
-                        : "Сохранить"}
-                  </Text>
-                </TouchableOpacity>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           </View>
-        </Modal>
+        )}
+
+        <View style={[GlobalStyles.section, { paddingHorizontal: 16, paddingBottom: 32 }]}>
+          <TouchableOpacity
+            style={[styles.addButton, { backgroundColor: colors.primary }]}
+            onPress={handleOpenNewEntry}
+          >
+            <Ionicons name="add" size={24} color={colors.primaryForeground} />
+            <Text style={[styles.addButtonText, { color: colors.primaryForeground }]}>
+              Записать настроение
+            </Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      <Modal
+        visible={showEntryModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowEntryModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={() => setShowEntryModal(false)}>
+                <Text style={{ color: colors.muted }}>Отмена</Text>
+              </TouchableOpacity>
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                {selectedDateEntry ? "Редактировать" : "Новая запись"}
+              </Text>
+              <TouchableOpacity onPress={handleSaveEntry}>
+                <Text style={{ color: colors.primary, fontWeight: "600" }}>Сохранить</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalDate}>
+              <Ionicons name="calendar" size={20} color={colors.primary} />
+              <Text style={[styles.modalDateText, { color: colors.foreground }]}>
+                {selectedDate
+                  ? format(selectedDate, "d MMMM yyyy", { locale: ru })
+                  : "Сегодня"}
+              </Text>
+            </View>
+
+            <Text style={[styles.modalSectionTitle, { color: colors.muted }]}>
+              Как вы себя чувствуете?
+            </Text>
+            <View style={styles.moodSelector}>
+              {MOOD_CONFIG.map((mood) => (
+                <TouchableOpacity
+                  key={mood.id}
+                  style={[
+                    styles.moodOption,
+                    {
+                      backgroundColor:
+                        selectedMood === mood.id
+                          ? `${mood.color}20`
+                          : colors.card,
+                      borderColor:
+                        selectedMood === mood.id
+                          ? mood.color
+                          : colors.border,
+                    },
+                  ]}
+                  onPress={() => setSelectedMood(mood.id)}
+                >
+                  <Ionicons
+                    name={mood.icon as any}
+                    size={24}
+                    color={selectedMood === mood.id ? mood.color : colors.muted}
+                  />
+                  <Text
+                    style={[
+                      styles.moodLabel,
+                      {
+                        color:
+                          selectedMood === mood.id
+                            ? mood.color
+                            : colors.muted,
+                      },
+                    ]}
+                  >
+                    {mood.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={[styles.modalSectionTitle, { color: colors.muted }]}>
+              Мысли (необязательно)
+            </Text>
+            <TextInput
+              style={[
+                styles.textInput,
+                {
+                  backgroundColor: colors.card,
+                  color: colors.foreground,
+                  borderColor: colors.border,
+                },
+              ]}
+              value={entryText}
+              onChangeText={setEntryText}
+              placeholder="О чём вы думаете?"
+              placeholderTextColor={colors.muted}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+
+            {selectedDateEntry && (
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => {
+                  handleDeleteEntry(selectedDateEntry.id);
+                  setShowEntryModal(false);
+                }}
+              >
+                <Ionicons name="trash" size={20} color="#EF4444" />
+                <Text style={styles.deleteButtonText}>Удалить запись</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-
-  // Календарь
-  calendarContainer: {
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-  },
+  container: { flex: 1 },
+  header: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 12 },
+  calendarCard: { marginHorizontal: 16, borderRadius: 16, padding: 16 },
   calendarHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  calendarTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  weekDays: {
+  calendarTitle: { fontSize: 16, fontWeight: "600" },
+  navButton: { padding: 8 },
+  dayNamesRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     marginBottom: 8,
   },
-  weekDay: {
-    flex: 1,
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "600",
-    textTransform: "uppercase",
-  },
+  dayName: { flex: 1, textAlign: "center", fontSize: 12, fontWeight: "500" },
   calendarGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
   },
   calendarDay: {
-    width: "14.28%",
+    width: `${100 / 7}%`,
     aspectRatio: 1,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 2,
     borderRadius: 8,
+  },
+  dayNumber: { fontSize: 14 },
+  moodDot: { width: 6, height: 6, borderRadius: 3, marginTop: 4 },
+  statsCard: { marginHorizontal: 16, borderRadius: 16, padding: 16 },
+  statsRow: { flexDirection: "row", justifyContent: "space-around" },
+  statItem: { alignItems: "center" },
+  statValue: { fontSize: 20, fontWeight: "700", marginTop: 8 },
+  statLabel: { fontSize: 12, marginTop: 4 },
+  statDivider: { width: 1, height: 40 },
+  trendCard: { borderRadius: 16, padding: 16 },
+  trendRow: { flexDirection: "row", justifyContent: "space-between" },
+  trendItem: { alignItems: "center" },
+  trendDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 2,
-    marginBottom: 4,
-  },
-  dayNumber: {
-    fontSize: 14,
-    marginBottom: 2,
-  },
-  moodIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
-
-  // Статистика
-  statsCard: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-  },
-  statsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
-  statsGrid: {
+  trendDay: { fontSize: 11, marginTop: 8 },
+  addButton: {
     flexDirection: "row",
-    alignItems: "center",
-  },
-  statItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: "rgba(0,0,0,0.1)",
-    marginHorizontal: 20,
-  },
-  moodIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
-  },
-
-  // Быстрое добавление
-  quickAddButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
     padding: 16,
-    borderRadius: 16,
-    marginBottom: 16,
-    gap: 12,
-  },
-  quickAddText: {
-    fontSize: 16,
-    fontWeight: "600",
-  },
-
-  // Настроения
-  moodContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    marginBottom: 24,
-  },
-  moodOption: {
-    alignItems: "center",
-    padding: 12,
     borderRadius: 12,
-    borderWidth: 1,
-    width: "18%",
-    minWidth: 70,
-  },
-  moodSelected: {
-    borderWidth: 2,
-    transform: [{ scale: 1.05 }],
-  },
-  moodIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  moodLabel: {
-    fontSize: 12,
-    fontWeight: "500",
-    textAlign: "center",
-  },
-
-  // Записи
-  entryCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  entryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  entryMood: {
-    flexDirection: "row",
-    alignItems: "center",
     gap: 8,
   },
-  entryDate: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  entryPreview: {
-    fontSize: 14,
-    lineHeight: 20,
-    opacity: 0.8,
-  },
-  emptyState: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 48,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    textAlign: "center",
-    paddingHorizontal: 32,
-  },
-
-  // Модальное окно
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-  },
+  addButtonText: { fontSize: 16, fontWeight: "600" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalContent: {
-    margin: 20,
-    borderRadius: 24,
-    maxHeight: "85%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: "80%",
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(0,0,0,0.1)",
+    alignItems: "center",
+    marginBottom: 16,
   },
-  modalTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: "700",
-  },
+  modalTitle: { fontSize: 18, fontWeight: "600" },
   modalDate: {
-    fontSize: 14,
-    fontWeight: "400",
-    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 20,
   },
-  modalBody: {
-    padding: 20,
+  modalDateText: { fontSize: 16, fontWeight: "500" },
+  modalSectionTitle: { fontSize: 14, fontWeight: "500", marginBottom: 12 },
+  moodSelector: { flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
+  moodOption: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginHorizontal: 4,
   },
-  entryInput: {
+  moodLabel: { fontSize: 11, marginTop: 4, fontWeight: "500" },
+  textInput: {
     borderWidth: 1,
     borderRadius: 12,
     padding: 16,
-    fontSize: 16,
-    textAlignVertical: "top",
-    minHeight: 120,
-    maxHeight: 200,
-    marginBottom: 16,
+    minHeight: 100,
+    fontSize: 15,
+    marginBottom: 20,
   },
   deleteButton: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "center",
-    padding: 14,
-    borderRadius: 12,
+    alignItems: "center",
+    padding: 12,
     gap: 8,
-    marginTop: 8,
   },
-  deleteButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  modalFooter: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(0,0,0,0.1)",
-  },
-  saveButton: {
-    minWidth: 160,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
+  deleteButtonText: { color: "#EF4444", fontWeight: "500" },
+  dayTasksCard: { borderRadius: 16, padding: 16, marginTop: 16 },
+  dayTasksTitle: { fontSize: 14, fontWeight: "600", marginBottom: 12 },
+  dayTaskItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1 },
+  dayTaskDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
+  dayTaskTitle: { flex: 1, fontSize: 14 },
 });

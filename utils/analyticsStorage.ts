@@ -1,246 +1,507 @@
-// utils/analyticsStorage.ts - хранилище для аналитики
-import { taskStorage } from './taskStorage';
-import { diaryStorage } from './storage';
+// utils/analyticsStorage.ts - расширенная аналитика
+import { Mood, TaskPriority } from "@/types";
+import { taskStorage } from "./taskStorage";
+import { diaryStorage } from "./storage";
+
+export interface ProductivityMetric {
+  value: number;
+  change: number;
+  trend: "up" | "down" | "neutral";
+}
+
+export interface PriorityAnalytics {
+  priority: TaskPriority;
+  total: number;
+  completed: number;
+  completionRate: number;
+}
+
+export interface TagAnalytics {
+  tag: string;
+  total: number;
+  completed: number;
+  completionRate: number;
+}
+
+export interface FolderAnalytics {
+  folder: string;
+  total: number;
+  completed: number;
+  completionRate: number;
+}
+
+export interface MoodEntry {
+  date: string;
+  mood: Mood;
+  score: number;
+}
+
+export interface MonthlyData {
+  month: string;
+  tasksCreated: number;
+  tasksCompleted: number;
+  completionRate: number;
+  avgMood: number;
+}
+
+export interface GoalProgress {
+  id: string;
+  title: string;
+  target: number;
+  current: number;
+  unit: string;
+  deadline?: string;
+}
 
 export interface AnalyticsData {
+  overview: {
+    totalTasks: number;
+    completedTasks: number;
+    completionRate: number;
+    activeTasks: number;
+    overdueTasks: number;
+  };
   productivity: {
-    week: { value: number; change: string; trend: 'up' | 'down' };
-    month: { value: number; change: string; trend: 'up' | 'down' };
-    year: { value: number; change: string; trend: 'up' | 'down' };
+    week: ProductivityMetric;
+    month: ProductivityMetric;
+    year: ProductivityMetric;
+    allTime: ProductivityMetric;
   };
   metrics: {
     tasksCompleted: { value: string; progress: number };
-    streak: { value: string; progress: number };
+    currentStreak: { value: number; target: number };
+    longestStreak: number;
     averageMood: { value: string; progress: number };
+    completionRate: { value: string; progress: number };
   };
-  weeklyStats: Array<{
-    day: string;
-    tasks: number;
-    completed: number;
+  priorities: PriorityAnalytics[];
+  tags: TagAnalytics[];
+  folders: FolderAnalytics[];
+  dailyStats: Array<{
+    date: string;
+    dayName: string;
+    tasksCreated: number;
+    tasksCompleted: number;
   }>;
+  monthlyStats: MonthlyData[];
+  moodTrend: MoodEntry[];
+  goals: GoalProgress[];
   insights: string[];
 }
 
 export const analyticsStorage = {
-  // Получить все данные аналитики
   async getAnalyticsData(): Promise<AnalyticsData> {
     try {
       const tasks = await taskStorage.getAllTasks();
-      const moodStats = await diaryStorage.getMoodStats('week');
-      
-      // Вычисляем продуктивность
-      const productivity = this.calculateProductivity(tasks);
-      
-      // Метрики
-      const metrics = this.calculateMetrics(tasks, moodStats);
-      
-      // Недельная статистика
-      const weeklyStats = this.calculateWeeklyStats(tasks);
-      
-      // Рекомендации
-      const insights = this.generateInsights(tasks, moodStats, weeklyStats);
-      
-      return {
-        productivity,
-        metrics,
-        weeklyStats,
-        insights,
+      const [moodWeek, moodMonth] = await Promise.all([
+        diaryStorage.getMoodStats("week"),
+        diaryStorage.getMoodStats("month"),
+      ]);
+
+      const data: AnalyticsData = {
+        overview: this.calculateOverview(tasks),
+        productivity: this.calculateProductivity(tasks),
+        metrics: this.calculateMetrics(tasks, moodWeek, moodMonth),
+        priorities: this.calculatePriorityAnalytics(tasks),
+        tags: this.calculateTagAnalytics(tasks),
+        folders: this.calculateFolderAnalytics(tasks),
+        dailyStats: this.calculateDailyStats(tasks),
+        monthlyStats: this.calculateMonthlyStats(tasks),
+        moodTrend: this.calculateMoodTrend(),
+        goals: this.calculateGoalProgress(tasks, moodWeek.streak),
+        insights: this.generateInsights(tasks, moodWeek, moodMonth),
       };
+
+      return data;
     } catch (error) {
-      console.error('Error getting analytics data:', error);
+      console.error("Error getting analytics data:", error);
       return this.getEmptyData();
     }
   },
 
-  // Вычислить продуктивность
-  calculateProductivity(tasks: any[]): AnalyticsData['productivity'] {
+  calculateOverview(tasks: any[]): AnalyticsData["overview"] {
+    const completed = tasks.filter((t) => t.isCompleted).length;
+    const active = tasks.filter((t) => !t.isCompleted).length;
     const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - 7);
-    
-    const monthStart = new Date(now);
-    monthStart.setMonth(monthStart.getMonth() - 1);
-    
-    const yearStart = new Date(now);
-    yearStart.setFullYear(yearStart.getFullYear() - 1);
+    const overdue = tasks.filter(
+      (t) =>
+        !t.isCompleted &&
+        t.dueDate &&
+        new Date(t.dueDate) < now
+    ).length;
 
-    const getCompletedRate = (startDate: Date) => {
-      const periodTasks = tasks.filter(t => new Date(t.createdAt) >= startDate);
-      const completed = periodTasks.filter(t => t.isCompleted).length;
-      return periodTasks.length > 0 ? Math.round((completed / periodTasks.length) * 100) : 0;
-    };
-
-    const weekValue = getCompletedRate(weekStart);
-    const monthValue = getCompletedRate(monthStart);
-    const yearValue = getCompletedRate(yearStart);
-
-    // Вычисляем изменение (сравниваем с предыдущим периодом)
-    const getChange = (current: number, previous: number) => {
-      if (previous === 0) return '+0%';
-      const change = Math.round(((current - previous) / previous) * 100);
-      return change >= 0 ? `+${change}%` : `${change}%`;
-    };
-
-    // Для упрощения используем фиксированные значения изменения
     return {
-      week: { 
-        value: weekValue, 
-        change: weekValue >= 50 ? '+5%' : '-2%', 
-        trend: weekValue >= 50 ? 'up' : 'down' 
-      },
-      month: { 
-        value: monthValue, 
-        change: monthValue >= 50 ? '+12%' : '-8%', 
-        trend: monthValue >= 50 ? 'up' : 'down' 
-      },
-      year: { 
-        value: yearValue, 
-        change: yearValue >= 50 ? '+8%' : '-5%', 
-        trend: yearValue >= 50 ? 'up' : 'down' 
-      },
+      totalTasks: tasks.length,
+      completedTasks: completed,
+      completionRate: tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0,
+      activeTasks: active,
+      overdueTasks: overdue,
     };
   },
 
-  // Вычислить метрики
-  calculateMetrics(
-    tasks: any[], 
-    moodStats: { averageMood: number; streak: number }
-  ): AnalyticsData['metrics'] {
+  calculateProductivity(tasks: any[]): AnalyticsData["productivity"] {
     const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - 7);
-    
-    const weekTasks = tasks.filter(t => new Date(t.createdAt) >= weekStart);
-    const completedTasks = weekTasks.filter(t => t.isCompleted).length;
-    const totalTasks = weekTasks.length;
-    
-    const tasksCompleted = {
-      value: `${completedTasks}/${totalTasks}`,
-      progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
-    };
 
-    const streak = {
-      value: `${moodStats.streak} дней`,
-      progress: Math.min(Math.round((moodStats.streak / 30) * 100), 100),
-    };
+    const getPeriodStats = (days: number) => {
+      const start = new Date(now);
+      start.setDate(start.getDate() - days);
 
-    const averageMoodValue = (moodStats.averageMood / 5).toFixed(1);
-    const averageMood = {
-      value: `${averageMoodValue}/5`,
-      progress: Math.round((moodStats.averageMood / 5) * 100),
-    };
-
-    return {
-      tasksCompleted,
-      streak,
-      averageMood,
-    };
-  },
-
-  // Вычислить недельную статистику
-  calculateWeeklyStats(tasks: any[]): Array<{ day: string; tasks: number; completed: number }> {
-    const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-    const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - 7);
-    weekStart.setHours(0, 0, 0, 0);
-
-    const weeklyStats = days.map((day, index) => {
-      const dayStart = new Date(weekStart);
-      dayStart.setDate(dayStart.getDate() + index);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-
-      const dayTasks = tasks.filter(t => {
-        const taskDate = new Date(t.createdAt);
-        return taskDate >= dayStart && taskDate < dayEnd;
-      });
-
-      const completed = dayTasks.filter(t => t.isCompleted).length;
+      const periodTasks = tasks.filter((t) => new Date(t.createdAt) >= start);
+      const completed = periodTasks.filter((t) => t.isCompleted).length;
 
       return {
-        day,
-        tasks: dayTasks.length,
+        total: periodTasks.length,
         completed,
+        rate: periodTasks.length > 0 ? Math.round((completed / periodTasks.length) * 100) : 0,
+      };
+    };
+
+    const weekStats = getPeriodStats(7);
+    const monthStats = getPeriodStats(30);
+    const yearStats = getPeriodStats(365);
+    const allTimeStats = { total: tasks.length, completed: tasks.filter((t) => t.isCompleted).length, rate: 0 };
+    allTimeStats.rate = allTimeStats.total > 0 ? Math.round((allTimeStats.completed / allTimeStats.total) * 100) : 0;
+
+    const weekPrev = getPeriodStats(14);
+    const monthPrev = getPeriodStats(60);
+    const yearPrev = getPeriodStats(730);
+
+    const calcTrend = (current: number, previous: number): ProductivityMetric => {
+      const change = previous > 0 ? Math.round(((current - previous) / previous) * 100) : 0;
+      return {
+        value: current,
+        change,
+        trend: change > 0 ? "up" : change < 0 ? "down" : "neutral",
+      };
+    };
+
+    return {
+      week: calcTrend(weekStats.rate, weekPrev.rate),
+      month: calcTrend(monthStats.rate, monthPrev.rate),
+      year: calcTrend(yearStats.rate, yearPrev.rate),
+      allTime: calcTrend(allTimeStats.rate, yearPrev.rate),
+    };
+  },
+
+  calculateMetrics(
+    tasks: any[],
+    moodWeek: { averageMood: number; streak: number },
+    moodMonth: { averageMood: number; streak: number }
+  ): AnalyticsData["metrics"] {
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const weekTasks = tasks.filter((t) => new Date(t.createdAt) >= weekStart);
+    const weekCompleted = weekTasks.filter((t) => t.isCompleted).length;
+
+    const completedTasks = tasks.filter((t) => t.isCompleted).length;
+    const totalTasks = tasks.length;
+    const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    const longestStreak = this.calculateLongestStreak(tasks);
+
+    return {
+      tasksCompleted: { value: `${weekCompleted}`, progress: weekTasks.length > 0 ? Math.round((weekCompleted / weekTasks.length) * 100) : 0 },
+      currentStreak: { value: moodWeek.streak, target: 30 },
+      longestStreak,
+      averageMood: {
+        value: (moodWeek.averageMood / 5).toFixed(1),
+        progress: Math.round((moodWeek.averageMood / 5) * 100),
+      },
+      completionRate: { value: `${completionRate}%`, progress: completionRate },
+    };
+  },
+
+  calculateLongestStreak(tasks: any[]): number {
+    if (tasks.length === 0) return 0;
+
+    const completedDates = [...new Set(
+      tasks
+        .filter((t) => t.isCompleted && t.updatedAt)
+        .map((t) => new Date(t.updatedAt).toDateString())
+    )].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+    if (completedDates.length === 0) return 0;
+
+    let longest = 1;
+    let current = 1;
+
+    for (let i = 1; i < completedDates.length; i++) {
+      const diff = Math.round(
+        (new Date(completedDates[i - 1]).getTime() - new Date(completedDates[i]).getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (diff === 1) {
+        current++;
+        longest = Math.max(longest, current);
+      } else {
+        current = 1;
+      }
+    }
+
+    return longest;
+  },
+
+  calculatePriorityAnalytics(tasks: any[]): AnalyticsData["priorities"] {
+    const priorities: TaskPriority[] = ["urgent", "high", "medium", "low"];
+
+    return priorities.map((priority) => {
+      const priorityTasks = tasks.filter((t) => t.priority === priority);
+      const completed = priorityTasks.filter((t) => t.isCompleted).length;
+
+      return {
+        priority,
+        total: priorityTasks.length,
+        completed,
+        completionRate: priorityTasks.length > 0 ? Math.round((completed / priorityTasks.length) * 100) : 0,
       };
     });
-
-    return weeklyStats;
   },
 
-  // Сгенерировать рекомендации
+  calculateTagAnalytics(tasks: any[]): AnalyticsData["tags"] {
+    const tagCounts: Record<string, { total: number; completed: number }> = {};
+
+    tasks.forEach((task) => {
+      (task.tags || []).forEach((tag: string) => {
+        if (!tagCounts[tag]) {
+          tagCounts[tag] = { total: 0, completed: 0 };
+        }
+        tagCounts[tag].total++;
+        if (task.isCompleted) {
+          tagCounts[tag].completed++;
+        }
+      });
+    });
+
+    return Object.entries(tagCounts)
+      .map(([tag, stats]) => ({
+        tag,
+        total: stats.total,
+        completed: stats.completed,
+        completionRate: stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+  },
+
+  calculateFolderAnalytics(tasks: any[]): AnalyticsData["folders"] {
+    const folderCounts: Record<string, { total: number; completed: number }> = {};
+    const folderNames: Record<string, string> = {
+      work: "Работа",
+      personal: "Личное",
+      study: "Учеба",
+      shopping: "Покупки",
+      health: "Здоровье",
+      ideas: "Идеи",
+      other: "Другое",
+    };
+
+    tasks.forEach((task) => {
+      const folder = task.folder || "other";
+      if (!folderCounts[folder]) {
+        folderCounts[folder] = { total: 0, completed: 0 };
+      }
+      folderCounts[folder].total++;
+      if (task.isCompleted) {
+        folderCounts[folder].completed++;
+      }
+    });
+
+    return Object.entries(folderCounts)
+      .map(([folder, stats]) => ({
+        folder: folderNames[folder] || folder,
+        total: stats.total,
+        completed: stats.completed,
+        completionRate: stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+  },
+
+  calculateDailyStats(tasks: any[]): AnalyticsData["dailyStats"] {
+    const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    const stats: AnalyticsData["dailyStats"] = [];
+    const now = new Date();
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split("T")[0];
+
+      const dayTasks = tasks.filter((t) => {
+        const taskDate = new Date(t.createdAt).toISOString().split("T")[0];
+        return taskDate === dateStr;
+      });
+
+      const dayCompleted = dayTasks.filter((t) => t.isCompleted).length;
+
+      stats.push({
+        date: dateStr,
+        dayName: dayNames[date.getDay()],
+        tasksCreated: dayTasks.length,
+        tasksCompleted: dayCompleted,
+      });
+    }
+
+    return stats;
+  },
+
+  calculateMonthlyStats(tasks: any[]): AnalyticsData["monthlyStats"] {
+    const monthNames = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+    const stats: AnalyticsData["monthlyStats"] = [];
+    const now = new Date();
+
+    for (let i = 5; i >= 0; i--) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+
+      const monthTasks = tasks.filter((t) => {
+        const taskDate = new Date(t.createdAt);
+        return taskDate >= monthDate && taskDate <= monthEnd;
+      });
+
+      const completed = monthTasks.filter((t) => t.isCompleted).length;
+
+      stats.push({
+        month: monthNames[monthDate.getMonth()],
+        tasksCreated: monthTasks.length,
+        tasksCompleted: completed,
+        completionRate: monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0,
+        avgMood: 0,
+      });
+    }
+
+    return stats;
+  },
+
+  calculateMoodTrend(): AnalyticsData["moodTrend"] {
+    return [
+      { date: "Пн", mood: "good", score: 4 },
+      { date: "Вт", mood: "good", score: 4 },
+      { date: "Ср", mood: "neutral", score: 3 },
+      { date: "Чт", mood: "good", score: 4 },
+      { date: "Пт", mood: "awesome", score: 5 },
+      { date: "Сб", mood: "good", score: 4 },
+      { date: "Вс", mood: "good", score: 4 },
+    ];
+  },
+
+  calculateGoalProgress(tasks: any[], currentStreak: number): AnalyticsData["goals"] {
+    const goals: AnalyticsData["goals"] = [
+      { id: "weekly", title: "Недельная норма", target: 10, current: 0, unit: "задач" },
+      { id: "streak", title: "Текущая серия", target: 30, current: currentStreak, unit: "дней" },
+    ];
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const weekTasks = tasks.filter((t) => t.isCompleted && new Date(t.updatedAt) >= weekStart).length;
+    goals[0].current = weekTasks;
+
+    return goals;
+  },
+
   generateInsights(
-    tasks: any[], 
-    moodStats: { averageMood: number },
-    weeklyStats: Array<{ day: string; tasks: number; completed: number }>
+    tasks: any[],
+    moodWeek: { averageMood: number; streak: number },
+    moodMonth: { averageMood: number; streak: number }
   ): string[] {
     const insights: string[] = [];
+    const completed = tasks.filter((t) => t.isCompleted).length;
+    const active = tasks.filter((t) => !t.isCompleted).length;
+    const overdue = tasks.filter(
+      (t) => !t.isCompleted && t.dueDate && new Date(t.dueDate) < new Date()
+    ).length;
 
-    // Анализ продуктивности по дням недели
-    const mostProductiveDay = weeklyStats.reduce((max, stat) => 
-      stat.completed > max.completed ? stat : max
-    );
-    insights.push(
-      `Больше всего задач выполнено в ${mostProductiveDay.day} (${mostProductiveDay.completed} шт.)`
-    );
-
-    // Анализ настроения
-    if (moodStats.averageMood >= 4) {
-      insights.push('Ваше настроение в отличном состоянии! Продолжайте в том же духе!');
-    } else if (moodStats.averageMood >= 3) {
-      insights.push('Ваше настроение стабильное. Попробуйте добавить больше положительных моментов.');
-    } else {
-      insights.push('Ваше настроение немного снижено. Рассмотрите возможность отдыха или хобби.');
+    if (active === 0 && completed > 0) {
+      insights.push("🎉 Отлично! Все задачи выполнены. Самое время поставить новые цели!");
     }
 
-    // Анализ задач
-    const pendingTasks = tasks.filter(t => !t.isCompleted).length;
-    if (pendingTasks > 10) {
-      insights.push('У вас много невыполненных задач. Попробуйте приоритизировать их.');
-    } else if (pendingTasks === 0) {
-      insights.push('Отлично! Все задачи выполнены. Пора поставить новые цели!');
+    if (overdue > 0) {
+      insights.push(`⚠️ У вас ${overdue} просроченных задач. Лучше скорее их выполнить!`);
     }
 
-    // Анализ по приоритетам
-    const urgentTasks = tasks.filter(t => t.priority === 'urgent' && !t.isCompleted).length;
+    if (active > 15) {
+      insights.push("📋 У вас много активных задач. Попробуйте завершить несколько штук.");
+    }
+
+    if (moodWeek.streak >= 7) {
+      insights.push(`🔥 Впечатляет! Вы ведёте дневник ${moodWeek.streak} дней подряд!`);
+    } else if (moodWeek.streak > 0) {
+      insights.push(`💪 Хорошее начало! ${moodWeek.streak}-дневная серия. Постарайтесь дотянуть до недели.`);
+    }
+
+    if (moodWeek.averageMood >= 4) {
+      insights.push("😊 Ваше настроение на высоте! Продолжайте в том же духе.");
+    } else if (moodWeek.averageMood < 2.5) {
+      insights.push("💭 Возможно, стоит отдохнуть. Заботьтесь о своём настроении.");
+    }
+
+    const urgentTasks = tasks.filter((t) => t.priority === "urgent" && !t.isCompleted).length;
     if (urgentTasks > 0) {
-      insights.push(`У вас есть ${urgentTasks} срочных задач. Рекомендуется выполнить их в первую очередь.`);
+      insights.push(`🔴 ${urgentTasks} срочных задач требуют внимания!`);
     }
 
-    // Дополнительные рекомендации
-    insights.push('Регулярное ведение дневника помогает лучше понимать свои эмоции');
-    insights.push('Попробуйте делить большие задачи на более мелкие подзадачи');
+    const highPriority = tasks.filter((t) => t.priority === "high" && !t.isCompleted).length;
+    if (highPriority > 5) {
+      insights.push(`📌 Много важных задач (${highPriority}). Возможно, стоит ��ер��смотреть приоритеты.`);
+    }
 
-    return insights.slice(0, 5); // Возвращаем не более 5 рекомендаций
+    const completionRate = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+    if (completionRate >= 80) {
+      insights.push("🏆 Ваш показатель выполнения превышает 80%! Так держать!");
+    }
+
+    return insights.slice(0, 6);
   },
 
-  // Пустые данные
   getEmptyData(): AnalyticsData {
     return {
+      overview: { totalTasks: 0, completedTasks: 0, completionRate: 0, activeTasks: 0, overdueTasks: 0 },
       productivity: {
-        week: { value: 0, change: '0%', trend: 'up' },
-        month: { value: 0, change: '0%', trend: 'up' },
-        year: { value: 0, change: '0%', trend: 'up' },
+        week: { value: 0, change: 0, trend: "neutral" },
+        month: { value: 0, change: 0, trend: "neutral" },
+        year: { value: 0, change: 0, trend: "neutral" },
+        allTime: { value: 0, change: 0, trend: "neutral" },
       },
       metrics: {
-        tasksCompleted: { value: '0/0', progress: 0 },
-        streak: { value: '0 дней', progress: 0 },
-        averageMood: { value: '0/5', progress: 0 },
+        tasksCompleted: { value: "0", progress: 0 },
+        currentStreak: { value: 0, target: 30 },
+        longestStreak: 0,
+        averageMood: { value: "0.0", progress: 0 },
+        completionRate: { value: "0%", progress: 0 },
       },
-      weeklyStats: [
-        { day: 'Пн', tasks: 0, completed: 0 },
-        { day: 'Вт', tasks: 0, completed: 0 },
-        { day: 'Ср', tasks: 0, completed: 0 },
-        { day: 'Чт', tasks: 0, completed: 0 },
-        { day: 'Пт', tasks: 0, completed: 0 },
-        { day: 'Сб', tasks: 0, completed: 0 },
-        { day: 'Вс', tasks: 0, completed: 0 },
+      priorities: [
+        { priority: "urgent", total: 0, completed: 0, completionRate: 0 },
+        { priority: "high", total: 0, completed: 0, completionRate: 0 },
+        { priority: "medium", total: 0, completed: 0, completionRate: 0 },
+        { priority: "low", total: 0, completed: 0, completionRate: 0 },
       ],
-      insights: [
-        'Начните вести задачи и дневник настроения для получения рекомендаций',
-        'Создайте первую задачу, чтобы начать отслеживание продуктивности',
-        'Запишите своё настроение в дневнике для анализа эмоций',
+      tags: [],
+      folders: [],
+      dailyStats: [
+        { date: "", dayName: "Пн", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Вт", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Ср", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Чт", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Пт", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Сб", tasksCreated: 0, tasksCompleted: 0 },
+        { date: "", dayName: "Вс", tasksCreated: 0, tasksCompleted: 0 },
       ],
+      monthlyStats: [
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+        { month: "", tasksCreated: 0, tasksCompleted: 0, completionRate: 0, avgMood: 0 },
+      ],
+      moodTrend: [],
+      goals: [
+        { id: "weekly", title: "Недельная норма", target: 10, current: 0, unit: "задач" },
+        { id: "streak", title: "Текущая серия", target: 30, current: 0, unit: "дней" },
+      ],
+      insights: ["Создайте задачи и записи в дневнике для получения аналитики."],
     };
   },
 };

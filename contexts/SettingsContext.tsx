@@ -15,17 +15,21 @@ export type AppTheme = "light" | "dark" | "system";
 interface Settings {
   theme: AppTheme;
   notificationsEnabled: boolean;
-  // Утреннее напоминание
   morningReminderEnabled: boolean;
-  morningReminderTime: string; // HH:mm format
-  // Вечернее напоминание
+  morningReminderTime: string;
   eveningReminderEnabled: boolean;
-  eveningReminderTime: string; // HH:mm format
+  eveningReminderTime: string;
   soundEnabled: boolean;
   hapticFeedback: boolean;
   showCompletedTasks: boolean;
   defaultPriority: "low" | "medium" | "high" | "urgent";
   language: string;
+  autoCompleteTasks: boolean;
+  autoDeleteCompletedDays: number;
+  quickAddEnabled: boolean;
+  showTaskHints: boolean;
+  compactView: boolean;
+  firstDayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6;
 }
 
 interface SettingsContextType {
@@ -49,6 +53,12 @@ const DEFAULT_SETTINGS: Settings = {
   showCompletedTasks: true,
   defaultPriority: "medium",
   language: "ru",
+  autoCompleteTasks: false,
+  autoDeleteCompletedDays: 30,
+  quickAddEnabled: true,
+  showTaskHints: true,
+  compactView: false,
+  firstDayOfWeek: 1,
 };
 
 const SettingsContext = createContext<SettingsContextType | undefined>(
@@ -60,7 +70,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
-  const systemScheme = useColorScheme();
 
   // Загрузка настроек при запуске
   useEffect(() => {
@@ -122,7 +131,8 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const savedSettings = await AsyncStorage.getItem(SETTINGS_KEY);
       if (savedSettings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) });
+        const parsed = JSON.parse(savedSettings);
+        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -235,11 +245,11 @@ export const useSettings = () => {
 // Хук для получения активной темы с учётом настроек
 export function useAppTheme() {
   const { settings } = useSettings();
-  const systemScheme = useColorScheme();
+  const systemColorScheme = useColorScheme();
 
   const getActiveTheme = (): "light" | "dark" => {
     if (settings.theme === "system") {
-      return systemScheme || "light";
+      return systemColorScheme || "light";
     }
     return settings.theme;
   };

@@ -50,6 +50,7 @@ const TaskCard: React.FC<{
   onEdit: () => void;
   onDelete: () => void;
 }> = ({ task, colors, onToggle, onEdit, onDelete }) => {
+  const [expanded, setExpanded] = useState(false);
   const isOverdue =
     task.dueDate && isPast(new Date(task.dueDate)) && !task.isCompleted;
 
@@ -81,10 +82,16 @@ const TaskCard: React.FC<{
     color: "#6B7280",
   };
 
+  const hasDescription = task.description && task.description.length > 0;
+
   return (
     <TouchableOpacity
       style={[styles.taskCard, { backgroundColor: colors.card }, SHADOWS.sm]}
-      onPress={onToggle}
+      onPress={() => {
+        if (hasDescription) {
+          setExpanded(!expanded);
+        }
+      }}
       onLongPress={() => {
         Alert.alert("Действия", "Выберите действие", [
           { text: "Редактировать", onPress: onEdit },
@@ -190,6 +197,22 @@ const TaskCard: React.FC<{
               <Ionicons name="infinite" size={14} color={colors.muted} />
               <Text style={[styles.dueDateText, { color: colors.muted }]}>
                 Без срока
+              </Text>
+            </View>
+          )}
+
+          {hasDescription && expanded && (
+            <View style={[styles.descriptionContainer, { borderTopColor: colors.border }]}>
+              <Text style={[styles.descriptionText, { color: colors.muted }]} numberOfLines={4}>
+                {task.description}
+              </Text>
+            </View>
+          )}
+          {hasDescription && !expanded && (
+            <View style={styles.expandHint}>
+              <Ionicons name="chevron-down" size={12} color={colors.muted} />
+              <Text style={[styles.expandHintText, { color: colors.muted }]}>
+                Нажмите для подробностей
               </Text>
             </View>
           )}
@@ -1439,6 +1462,14 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dueDateText: { fontSize: 13, fontWeight: "400" },
+  descriptionContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  descriptionText: { fontSize: 13, lineHeight: 18 },
+  expandHint: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 4 },
+  expandHintText: { fontSize: 10 },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",

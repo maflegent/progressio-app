@@ -1,4 +1,5 @@
 import { Colors } from "@/constants/Colors";
+import { useAppTheme } from "@/contexts/SettingsContext";
 import { useFolders } from "@/contexts/FoldersContext";
 import { useTags } from "@/contexts/TagsContext";
 import { TaskPriority } from "@/types";
@@ -65,18 +66,6 @@ const DEFAULT_FOLDER_CONFIG = {
   other: { label: "Другое", icon: "folder", color: "#6B7280" },
 } as const;
 
-type FolderConfigKey = keyof typeof DEFAULT_FOLDER_CONFIG;
-
-const REMINDER_OPTIONS = [
-  { value: null, label: "Без напоминания" },
-  { value: 5, label: "5 мин" },
-  { value: 15, label: "15 мин" },
-  { value: 30, label: "30 мин" },
-  { value: 60, label: "1 час" },
-  { value: 1440, label: "1 день" },
-  { value: 10080, label: "1 неделя" },
-];
-
 const QUICK_DATES = [
   { label: "Сегодня", days: 0, icon: "today" },
   { label: "Завтра", days: 1, icon: "calendar" },
@@ -120,7 +109,7 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
 }) => {
   const { customTags, addCustomTag } = useTags();
   const { customFolders } = useFolders();
-  const colorScheme = "light";
+  const colorScheme = useAppTheme();
   const colors = Colors[colorScheme];
 
   // Объединяем дефолтные и пользовательские папки
@@ -158,11 +147,6 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
   const [newTag, setNewTag] = useState("");
   const [showDueDatePicker, setShowDueDatePicker] = useState(false);
   const [showDueTimePicker, setShowDueTimePicker] = useState(false);
-  const [showReminderDatePicker, setShowReminderDatePicker] = useState(false);
-  const [showReminderTimePicker, setShowReminderTimePicker] = useState(false);
-  const [selectedReminderDate, setSelectedReminderDate] = useState<Date | null>(
-    null,
-  );
 
   // Инициализация данных
   useEffect(() => {
@@ -616,148 +600,6 @@ export const TaskCreator: React.FC<TaskCreatorProps> = ({
           </View>
         )}
       </View>
-
-      {/* Напоминание (временно отключено) */}
-      {false && (
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.fieldLabel, { color: colors.foreground }]}>
-            Напоминание
-          </Text>
-
-          {/* Быстрые опции */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ marginBottom: 12 }}
-          >
-            <View style={styles.reminderOptions}>
-              {REMINDER_OPTIONS.map((option) => (
-                <TouchableOpacity
-                  key={option.label}
-                  style={[
-                    styles.reminderChip,
-                    {
-                      backgroundColor:
-                        formData.reminderMinutesBefore === option.value &&
-                        !selectedReminderDate
-                          ? colors.primary
-                          : colors.card,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  onPress={() => {
-                    setSelectedReminderDate(null);
-                    setFormData((prev) => ({
-                      ...prev,
-                      reminderMinutesBefore: option.value,
-                    }));
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.reminderChipText,
-                      {
-                        color:
-                          formData.reminderMinutesBefore === option.value &&
-                          !selectedReminderDate
-                            ? "#FFFFFF"
-                            : colors.cardForeground,
-                      },
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-
-          {/* Кастомная дата и время */}
-          <TouchableOpacity
-            style={[
-              styles.customReminderButton,
-              {
-                backgroundColor: colors.card,
-                borderColor: selectedReminderDate
-                  ? colors.primary
-                  : colors.border,
-              },
-            ]}
-            onPress={() => setShowReminderDatePicker(true)}
-          >
-            <Ionicons
-              name="alarm"
-              size={20}
-              color={selectedReminderDate ? colors.primary : colors.muted}
-            />
-            <Text
-              style={[
-                styles.customReminderText,
-                { color: selectedReminderDate ? colors.primary : colors.muted },
-              ]}
-            >
-              {selectedReminderDate
-                ? `Напомнить ${format(selectedReminderDate!, "d MMM 'в' HH:mm", { locale: ru })}`
-                : "Выбрать дату и время напоминания"}
-            </Text>
-            {selectedReminderDate && (
-              <TouchableOpacity
-                onPress={() => setSelectedReminderDate(null)}
-                style={{ marginLeft: 8 }}
-              >
-                <Ionicons name="close-circle" size={18} color={colors.muted} />
-              </TouchableOpacity>
-            )}
-          </TouchableOpacity>
-
-          {/* Date Picker для напоминания */}
-          {showReminderDatePicker && selectedReminderDate && (
-            <DateTimePicker
-              value={selectedReminderDate as any}
-              mode="date"
-              display={Platform.OS === "ios" ? "inline" : "default"}
-              minimumDate={new Date()}
-              onChange={(_, date) => {
-                setShowReminderDatePicker(false);
-                if (date) {
-                  const newDate = new Date(date);
-                  if (selectedReminderDate) {
-                    newDate.setHours(selectedReminderDate.getHours());
-                    newDate.setMinutes(selectedReminderDate.getMinutes());
-                  } else {
-                    newDate.setHours(9);
-                    newDate.setMinutes(0);
-                  }
-                  setSelectedReminderDate(newDate);
-                  setShowReminderTimePicker(true);
-                }
-              }}
-            />
-          )}
-
-          {/* Time Picker для напоминания */}
-          {showReminderTimePicker && selectedReminderDate && (
-            <DateTimePicker
-              value={selectedReminderDate as any}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={(_, date) => {
-                setShowReminderTimePicker(false);
-                if (date && selectedReminderDate) {
-                  const newDate = new Date(selectedReminderDate);
-                  newDate.setHours(date.getHours());
-                  newDate.setMinutes(date.getMinutes());
-                  setSelectedReminderDate(newDate);
-                  setFormData((prev) => ({
-                    ...prev,
-                    reminderMinutesBefore: null,
-                  }));
-                }
-              }}
-            />
-          )}
-        </View>
-      )}
 
       {/* Повторение */}
       <View style={styles.fieldGroup}>

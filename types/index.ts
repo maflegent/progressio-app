@@ -58,17 +58,8 @@ export interface Note {
   folder?: string;
   createdAt: Date;
   updatedAt: Date;
-  // Улучшения
   isPinned: boolean;
-  color?: string;
-  templates?: NoteTemplate[];
-}
-
-export interface NoteTemplate {
-  id: string;
-  name: string;
-  content: string;
-  category: string;
+color?: string;
 }
 
 // Новые интерфейсы для улучшения UX
