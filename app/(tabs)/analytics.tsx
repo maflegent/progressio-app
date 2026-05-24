@@ -8,13 +8,14 @@ import React, { useEffect, useState } from "react";
 import {
   Dimensions,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+// SafeAreaView перенесён из react-native в react-native-safe-area-context для устранения warning о deprecated
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 

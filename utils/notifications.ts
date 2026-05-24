@@ -206,10 +206,9 @@ export async function scheduleMorningReminder(
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour,
         minute,
-        repeats: true,
       },
     });
   } catch (error) {
@@ -236,10 +235,9 @@ export async function scheduleEveningReminder(
         priority: Notifications.AndroidNotificationPriority.DEFAULT,
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour,
         minute,
-        repeats: true,
       },
     });
   } catch (error) {
@@ -260,10 +258,9 @@ export async function scheduleDiaryReminder(
         sound: "default",
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour,
         minute,
-        repeats: true,
       },
     });
   } catch (error) {

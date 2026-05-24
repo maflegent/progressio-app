@@ -15,7 +15,6 @@ import {
   Animated,
   FlatList,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +22,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+// SafeAreaView перенесён из react-native в react-native-safe-area-context для устранения warning о deprecated
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const PRIORITY_COLORS = {
   urgent: "#EF4444",

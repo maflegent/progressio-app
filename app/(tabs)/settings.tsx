@@ -11,7 +11,6 @@ import {
   Alert,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -19,6 +18,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+// SafeAreaView перенесён из react-native в react-native-safe-area-context для устранения warning о deprecated
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const SettingsSection: React.FC<{ title: string; children: React.ReactNode; colors: any }> = ({
   title,
