@@ -6,7 +6,7 @@ import {
   scheduleEveningReminder,
   scheduleMorningReminder,
 } from "@/utils/notifications";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { PreferencesRepository } from "@/utils/repositories/PreferencesRepository";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { useColorScheme } from "react-native";
 
@@ -39,8 +39,6 @@ interface SettingsContextType {
   resetSettings: () => Promise<void>;
 }
 
-const SETTINGS_KEY = "@progressio_settings";
-
 const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   notificationsEnabled: true,
@@ -61,9 +59,7 @@ const DEFAULT_SETTINGS: Settings = {
   firstDayOfWeek: 1,
 };
 
-const SettingsContext = createContext<SettingsContextType | undefined>(
-  undefined,
-);
+const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -71,12 +67,10 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Загрузка настроек при запуске
   useEffect(() => {
     loadSettings();
   }, []);
 
-  // Управление напоминаниями
   useEffect(() => {
     if (!isLoading) {
       manageReminders();
@@ -100,7 +94,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       const hasPermission = await requestNotificationPermissions();
       if (!hasPermission) return;
 
-      // Утреннее напоминание
       if (settings.morningReminderEnabled) {
         const [morningHour, morningMinute] = settings.morningReminderTime
           .split(":")
@@ -110,7 +103,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         await cancelMorningReminder();
       }
 
-      // Вечернее напоминание
       if (settings.eveningReminderEnabled) {
         const [eveningHour, eveningMinute] = settings.eveningReminderTime
           .split(":")
@@ -129,11 +121,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const loadSettings = async () => {
     try {
-      const savedSettings = await AsyncStorage.getItem(SETTINGS_KEY);
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
-      }
+      const row = await PreferencesRepository.get();
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        theme: (row.theme as AppTheme) || "system",
+        language: row.language || "ru",
+        notificationsEnabled: Boolean(row.task_reminders),
+        morningReminderEnabled: Boolean(row.task_reminders),
+        eveningReminderEnabled: Boolean(row.weekly_review),
+        defaultPriority: (row.default_task_priority as any) || "medium",
+      });
     } catch (error) {
       console.error("Error loading settings:", error);
     } finally {
@@ -143,7 +140,6 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const updateSettings = async (updates: Partial<Settings>) => {
     try {
-      // Запрос разрешения при включении уведомлений
       if (
         updates.notificationsEnabled === true &&
         !settings.notificationsEnabled
@@ -157,7 +153,13 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const newSettings = { ...settings, ...updates };
       setSettings(newSettings);
-      await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
+
+      await PreferencesRepository.update({
+        theme: updates.theme || settings.theme,
+        language: updates.language || settings.language,
+        task_reminders: updates.notificationsEnabled !== undefined ? (updates.notificationsEnabled ? 1 : 0) : settings.notificationsEnabled ? 1 : 0,
+        default_task_priority: updates.defaultPriority || settings.defaultPriority,
+      });
     } catch (error) {
       console.error("Error saving settings:", error);
       throw error;
@@ -167,49 +169,33 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const resetSettings = async () => {
     try {
       await cancelAllReminders();
+      await PreferencesRepository.reset();
       setSettings(DEFAULT_SETTINGS);
-      await AsyncStorage.setItem(
-        SETTINGS_KEY,
-        JSON.stringify(DEFAULT_SETTINGS),
-      );
     } catch (error) {
       console.error("Error resetting settings:", error);
       throw error;
     }
   };
 
-  // Обновить напоминания с учётом количества задач
   const updateRemindersWithTaskCount = async (activeTasksCount: number) => {
     try {
-      if (!settings.notificationsEnabled) {
-        return;
-      }
+      if (!settings.notificationsEnabled) return;
 
       const hasPermission = await requestNotificationPermissions();
       if (!hasPermission) return;
 
-      // Утреннее напоминание
       if (settings.morningReminderEnabled) {
         const [morningHour, morningMinute] = settings.morningReminderTime
           .split(":")
           .map(Number);
-        await scheduleMorningReminder(
-          morningHour,
-          morningMinute,
-          activeTasksCount,
-        );
+        await scheduleMorningReminder(morningHour, morningMinute, activeTasksCount);
       }
 
-      // Вечернее напоминание
       if (settings.eveningReminderEnabled) {
         const [eveningHour, eveningMinute] = settings.eveningReminderTime
           .split(":")
           .map(Number);
-        await scheduleEveningReminder(
-          eveningHour,
-          eveningMinute,
-          activeTasksCount,
-        );
+        await scheduleEveningReminder(eveningHour, eveningMinute, activeTasksCount);
       }
     } catch (error) {
       console.warn("Ошибка обновления напоминаний:", error);
@@ -217,7 +203,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   if (isLoading) {
-    return null; // Или можно вернуть загрузочный индикатор
+    return null;
   }
 
   return (
@@ -242,7 +228,6 @@ export const useSettings = () => {
   return context;
 };
 
-// Хук для получения активной темы с учётом настроек
 export function useAppTheme() {
   const { settings } = useSettings();
   const systemColorScheme = useColorScheme();

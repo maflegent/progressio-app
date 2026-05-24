@@ -1,5 +1,5 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { FolderRepository, CustomFolderRow } from "@/utils/repositories/FolderRepository";
 
 export interface CustomFolder {
   id: string;
@@ -14,18 +14,12 @@ interface FoldersContextType {
   removeCustomFolder: (id: string) => Promise<void>;
 }
 
-const CUSTOM_FOLDERS_KEY = "@progressio_custom_folders";
-
-const DEFAULT_CUSTOM_FOLDERS: CustomFolder[] = [];
-
 const FoldersContext = createContext<FoldersContextType | undefined>(undefined);
 
 export const FoldersProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [customFolders, setCustomFolders] = useState<CustomFolder[]>(
-    DEFAULT_CUSTOM_FOLDERS,
-  );
+  const [customFolders, setCustomFolders] = useState<CustomFolder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -34,10 +28,9 @@ export const FoldersProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const loadFolders = async () => {
     try {
-      const savedFolders = await AsyncStorage.getItem(CUSTOM_FOLDERS_KEY);
-      if (savedFolders) {
-        setCustomFolders(JSON.parse(savedFolders));
-      }
+      setIsLoading(true);
+      const folders = await FolderRepository.getAll();
+      setCustomFolders(folders);
     } catch (error) {
       console.error("Error loading folders:", error);
     } finally {
@@ -47,16 +40,8 @@ export const FoldersProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const addCustomFolder = async (folder: Omit<CustomFolder, "id">) => {
     try {
-      const newFolder: CustomFolder = {
-        ...folder,
-        id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-      };
-      const updatedFolders = [...customFolders, newFolder];
-      setCustomFolders(updatedFolders);
-      await AsyncStorage.setItem(
-        CUSTOM_FOLDERS_KEY,
-        JSON.stringify(updatedFolders),
-      );
+      const id = await FolderRepository.insert(folder);
+      setCustomFolders((prev) => [...prev, { id, ...folder }]);
     } catch (error) {
       console.error("Error adding folder:", error);
       throw error;
@@ -65,12 +50,8 @@ export const FoldersProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const removeCustomFolder = async (id: string) => {
     try {
-      const updatedFolders = customFolders.filter((f) => f.id !== id);
-      setCustomFolders(updatedFolders);
-      await AsyncStorage.setItem(
-        CUSTOM_FOLDERS_KEY,
-        JSON.stringify(updatedFolders),
-      );
+      await FolderRepository.delete(id);
+      setCustomFolders((prev) => prev.filter((f) => f.id !== id));
     } catch (error) {
       console.error("Error removing folder:", error);
       throw error;

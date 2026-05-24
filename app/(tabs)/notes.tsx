@@ -3,7 +3,7 @@ import { Colors } from "@/constants/Colors";
 import { GlobalStyles } from "@/constants/Styles";
 import { useAppTheme } from "@/contexts/SettingsContext";
 import { Note } from "@/types";
-import { notesStorage } from "@/utils/notesStorage";
+import { NoteRepository } from "@/utils/repositories/NoteRepository";
 import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -121,11 +121,8 @@ export default function NotesScreen() {
   const loadNotes = async () => {
     try {
       setIsLoading(true);
-      const loaded = await notesStorage.loadNotes();
-      setNotes(loaded.sort((a, b) => {
-        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      }));
+      const loaded = await NoteRepository.getAll();
+      setNotes(loaded);
     } catch (error) {
       console.error("Error loading:", error);
     } finally {
@@ -145,7 +142,7 @@ export default function NotesScreen() {
 
     try {
       if (editingNote) {
-        await notesStorage.updateNote(editingNote.id, {
+        await NoteRepository.update(editingNote.id, {
           title: noteTitle.trim(),
           content: noteContent.trim(),
           folder: noteFolder,
@@ -153,12 +150,15 @@ export default function NotesScreen() {
           isPinned: editingNote.isPinned,
         });
       } else {
-        await notesStorage.addNote({
+        await NoteRepository.insert({
+          id: Date.now().toString(),
           title: noteTitle.trim(),
           content: noteContent.trim(),
           folder: noteFolder,
           color: noteColor,
           isPinned: false,
+          linkedTasks: [],
+          files: [],
         });
       }
 
@@ -177,7 +177,7 @@ export default function NotesScreen() {
         text: "Удалить",
         style: "destructive",
         onPress: async () => {
-          await notesStorage.deleteNote(id);
+          await NoteRepository.delete(id);
           await loadNotes();
         },
       },
@@ -185,7 +185,7 @@ export default function NotesScreen() {
   };
 
   const handleTogglePin = async (note: Note) => {
-    await notesStorage.togglePin(note.id);
+    await NoteRepository.update(note.id, { isPinned: !note.isPinned });
     await loadNotes();
   };
 

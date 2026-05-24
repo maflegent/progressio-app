@@ -1,6 +1,5 @@
-// contexts/TaskContext.tsx - исправленная версия
 import { Task, TaskPriority } from "@/types";
-import { taskStorage } from "@/utils/taskStorage";
+import { TaskRepository } from "@/utils/repositories/TaskRepository";
 import React, {
   createContext,
   ReactNode,
@@ -48,12 +47,10 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const { updateRemindersWithTaskCount } = useSettings();
 
-  // Загружаем задачи при монтировании
   useEffect(() => {
     loadTasks();
   }, []);
 
-  // Обновляем напоминания при изменении задач
   useEffect(() => {
     if (!isLoading) {
       const activeTasksCount = tasks.filter((t) => !t.isCompleted).length;
@@ -64,7 +61,7 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
   const loadTasks = async () => {
     try {
       setIsLoading(true);
-      const loadedTasks = await taskStorage.getAllTasks();
+      const loadedTasks = await TaskRepository.getAll();
       setTasks(loadedTasks);
     } catch (error) {
       console.error("Error loading tasks:", error);
@@ -77,8 +74,16 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
     taskData: Omit<Task, "id" | "createdAt" | "updatedAt">,
   ) => {
     try {
-      await taskStorage.createTask(taskData);
-      await loadTasks(); // Перезагружаем список
+      const id = Date.now().toString();
+      const now = new Date();
+      const { createdAt: _, updatedAt: __, ...restData } = taskData as any;
+      await TaskRepository.insert({
+        id,
+        ...restData,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await loadTasks();
     } catch (error) {
       console.error("Error adding task:", error);
       throw error;
@@ -87,7 +92,7 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
 
   const updateTask = async (id: string, updates: Partial<Task>) => {
     try {
-      await taskStorage.updateTask(id, updates);
+      await TaskRepository.update(id, updates);
       await loadTasks();
     } catch (error) {
       console.error("Error updating task:", error);
@@ -97,7 +102,7 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
 
   const deleteTask = async (id: string) => {
     try {
-      await taskStorage.deleteTask(id);
+      await TaskRepository.delete(id);
       await loadTasks();
     } catch (error) {
       console.error("Error deleting task:", error);
@@ -107,7 +112,7 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
 
   const toggleTaskCompletion = async (id: string) => {
     try {
-      await taskStorage.toggleTaskCompletion(id);
+      await TaskRepository.toggleComplete(id);
       await loadTasks();
     } catch (error) {
       console.error("Error toggling task completion:", error);
@@ -134,7 +139,6 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
         return false;
       }
       if (filter.tags && filter.tags.length > 0) {
-        // Проверяем, содержит ли задача все указанные теги
         const hasAllTags = filter.tags.every((tag) => task.tags.includes(tag));
         if (!hasAllTags) return false;
       }
@@ -148,7 +152,7 @@ export const TaskProvider: React.FC<TaskProviderProps> = ({ children }) => {
 
   const clearAllTasks = async () => {
     try {
-      await taskStorage.clearAll();
+      await TaskRepository.deleteAll();
       setTasks([]);
     } catch (error) {
       console.error("Error clearing all tasks:", error);

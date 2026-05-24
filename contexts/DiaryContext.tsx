@@ -1,7 +1,6 @@
-// contexts/DiaryContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { DiaryEntry, Mood } from '@/types';
-import { diaryStorage } from '@/utils/storage';
+import { DiaryRepository } from '@/utils/repositories/DiaryRepository';
 
 interface DiaryContextType {
   entries: DiaryEntry[];
@@ -44,7 +43,7 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
   const loadEntries = async () => {
     try {
       setIsLoading(true);
-      const loadedEntries = await diaryStorage.loadEntries();
+      const loadedEntries = await DiaryRepository.getAll();
       setEntries(loadedEntries);
     } catch (error) {
       console.error('Error loading diary entries:', error);
@@ -55,7 +54,7 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
 
   const addEntry = async (entryData: Omit<DiaryEntry, 'id' | 'createdAt'>) => {
     try {
-      await diaryStorage.addEntry(entryData);
+      await DiaryRepository.insert(entryData);
       await loadEntries();
     } catch (error) {
       console.error('Error adding diary entry:', error);
@@ -65,7 +64,7 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
 
   const updateEntry = async (id: string, updates: Partial<DiaryEntry>) => {
     try {
-      await diaryStorage.updateEntry(id, updates);
+      await DiaryRepository.update(id, updates);
       await loadEntries();
     } catch (error) {
       console.error('Error updating diary entry:', error);
@@ -75,7 +74,7 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
 
   const deleteEntry = async (id: string) => {
     try {
-      await diaryStorage.deleteEntry(id);
+      await DiaryRepository.delete(id);
       await loadEntries();
     } catch (error) {
       console.error('Error deleting diary entry:', error);
@@ -97,7 +96,7 @@ export const DiaryProvider: React.FC<DiaryProviderProps> = ({ children }) => {
   };
 
   const getMoodStats = async (period: 'week' | 'month' | 'year') => {
-    return diaryStorage.getMoodStats(period);
+    return DiaryRepository.getMoodStats(period);
   };
 
   const refreshEntries = loadEntries;
