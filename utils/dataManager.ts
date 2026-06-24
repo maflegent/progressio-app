@@ -1,5 +1,10 @@
-// utils/dataManager.ts - управление данными
+// utils/dataManager.ts - управление данными (SQLite + AsyncStorage)
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DiaryRepository } from "./repositories/DiaryRepository";
+import { TaskRepository } from "./repositories/TaskRepository";
+import { NoteRepository } from "./repositories/NoteRepository";
+import { FolderRepository } from "./repositories/FolderRepository";
+import { TagRepository } from "./repositories/TagRepository";
 
 const DATA_KEYS = {
   TASKS: "@progressio_tasks",
@@ -110,6 +115,14 @@ export const dataManager = {
         AsyncStorage.removeItem(DATA_KEYS.TASKS),
         AsyncStorage.removeItem(DATA_KEYS.DIARY),
         AsyncStorage.removeItem(DATA_KEYS.NOTES),
+        AsyncStorage.removeItem(DATA_KEYS.TAGS),
+        AsyncStorage.removeItem(DATA_KEYS.FOLDERS),
+        AsyncStorage.removeItem(DATA_KEYS.SETTINGS),
+        TaskRepository.deleteAll(),
+        DiaryRepository.deleteAll(),
+        NoteRepository.deleteAll(),
+        FolderRepository.deleteAll(),
+        TagRepository.deleteAll(),
       ]);
       return true;
     } catch (error) {

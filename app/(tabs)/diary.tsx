@@ -4,7 +4,7 @@ import { GlobalStyles } from "@/constants/Styles";
 import { useAppTheme } from "@/contexts/SettingsContext";
 import { useTasks } from "@/contexts/TaskContext";
 import { DiaryEntry, Mood } from "@/types";
-import { diaryStorage } from "@/utils/storage";
+import { useDiary } from "@/contexts/DiaryContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import {
@@ -206,32 +206,15 @@ export default function DiaryScreen() {
   const colors = Colors[colorScheme];
   const { tasks } = useTasks();
 
-  const [entries, setEntries] = useState<DiaryEntry[]>([]);
+  const { entries, addEntry, updateEntry, deleteEntry } = useDiary();
   const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
   const [entryText, setEntryText] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [selectedDateEntry, setSelectedDateEntry] = useState<DiaryEntry | null>(null);
   const [showTaskList, setShowTaskList] = useState(false);
   const [tasksForDate, setTasksForDate] = useState<any[]>([]);
-
-  useEffect(() => {
-    loadEntries();
-  }, []);
-
-  const loadEntries = async () => {
-    try {
-      setIsLoading(true);
-      const loaded = await diaryStorage.loadEntries();
-      setEntries(loaded);
-    } catch (error) {
-      console.error("Error loading:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleDateSelect = (date: Date) => {
     const entry = entries.find((e) => isSameDay(new Date(e.date), date));
@@ -265,11 +248,10 @@ export default function DiaryScreen() {
 
     try {
       if (selectedDateEntry) {
-        await diaryStorage.updateEntry(selectedDateEntry.id, entry);
+        await updateEntry(selectedDateEntry.id, entry);
       } else {
-        await diaryStorage.addEntry(entry);
+        await addEntry(entry);
       }
-      await loadEntries();
       setShowEntryModal(false);
     } catch (error) {
       console.error("Error saving:", error);
@@ -278,8 +260,7 @@ export default function DiaryScreen() {
 
   const handleDeleteEntry = async (id: string) => {
     try {
-      await diaryStorage.deleteEntry(id);
-      await loadEntries();
+      await deleteEntry(id);
       setSelectedDateEntry(null);
     } catch (error) {
       console.error("Error deleting:", error);

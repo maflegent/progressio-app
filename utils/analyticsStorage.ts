@@ -1,7 +1,7 @@
 // utils/analyticsStorage.ts - расширенная аналитика
 import { Mood, TaskPriority } from "@/types";
-import { taskStorage } from "./taskStorage";
-import { diaryStorage } from "./storage";
+import { TaskRepository } from "./repositories/TaskRepository";
+import { DiaryRepository } from "./repositories/DiaryRepository";
 
 export interface ProductivityMetric {
   value: number;
@@ -92,10 +92,10 @@ export interface AnalyticsData {
 export const analyticsStorage = {
   async getAnalyticsData(): Promise<AnalyticsData> {
     try {
-      const tasks = await taskStorage.getAllTasks();
+      const tasks = await TaskRepository.getAll();
       const [moodWeek, moodMonth] = await Promise.all([
-        diaryStorage.getMoodStats("week"),
-        diaryStorage.getMoodStats("month"),
+        DiaryRepository.getMoodStats("week"),
+        DiaryRepository.getMoodStats("month"),
       ]);
 
       const data: AnalyticsData = {
@@ -107,7 +107,7 @@ export const analyticsStorage = {
         folders: this.calculateFolderAnalytics(tasks),
         dailyStats: this.calculateDailyStats(tasks),
         monthlyStats: this.calculateMonthlyStats(tasks),
-        moodTrend: this.calculateMoodTrend(),
+        moodTrend: await this.calculateMoodTrend(),
         goals: this.calculateGoalProgress(tasks, moodWeek.streak),
         insights: this.generateInsights(tasks, moodWeek, moodMonth),
       };
@@ -373,16 +373,42 @@ export const analyticsStorage = {
     return stats;
   },
 
-  calculateMoodTrend(): AnalyticsData["moodTrend"] {
-    return [
-      { date: "Пн", mood: "good", score: 4 },
-      { date: "Вт", mood: "good", score: 4 },
-      { date: "Ср", mood: "neutral", score: 3 },
-      { date: "Чт", mood: "good", score: 4 },
-      { date: "Пт", mood: "awesome", score: 5 },
-      { date: "Сб", mood: "good", score: 4 },
-      { date: "Вс", mood: "good", score: 4 },
-    ];
+  async calculateMoodTrend(): Promise<AnalyticsData["moodTrend"]> {
+    try {
+      const entries = await DiaryRepository.getAll();
+      const now = new Date();
+      const dayLabels = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+      const moodValues: Record<string, number> = { awful: 1, bad: 2, neutral: 3, good: 4, awesome: 5 };
+      const trend: AnalyticsData["moodTrend"] = [];
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split("T")[0];
+        const entry = entries.find((e) => {
+          const eStr = new Date(e.date).toISOString().split("T")[0];
+          return eStr === dateStr;
+        });
+
+        if (entry) {
+          trend.push({
+            date: dayLabels[date.getDay()],
+            mood: entry.mood,
+            score: moodValues[entry.mood] || 3,
+          });
+        } else {
+          trend.push({
+            date: dayLabels[date.getDay()],
+            mood: "neutral" as Mood,
+            score: 0,
+          });
+        }
+      }
+
+      return trend;
+    } catch {
+      return [];
+    }
   },
 
   calculateGoalProgress(tasks: any[], currentStreak: number): AnalyticsData["goals"] {
